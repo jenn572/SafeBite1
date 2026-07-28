@@ -50,6 +50,72 @@ PRODUCTS = {
         "Chia Seeds",
         "Dried Cranberries",
     ],
+    "Frozen Pizza": [
+        "Whole Wheat Crust",
+        "Tomato Sauce",
+        "Mozzarella Cheese",
+        "Spinach",
+        "Mushrooms",
+        "Olive Oil",
+        "Sodium Nitrite",
+        "Excess Sodium",
+        "Artificial Preservatives",
+        "Refined White Flour",
+    ],
+    "Fruit Juice": [
+        "100% Fruit Juice",
+        "Vitamin C (Ascorbic Acid)",
+        "No Added Sugar",
+        "High Fructose Corn Syrup",
+        "Artificial Colors",
+        "Artificial Sweeteners",
+        "Added Sugar",
+    ],
+    "Ice Cream": [
+        "Milk",
+        "Cream",
+        "Egg Yolks",
+        "Vanilla Extract",
+        "Cocoa",
+        "Artificial Colors",
+        "Corn Syrup",
+        "Carrageenan",
+        "Mono- and Diglycerides",
+    ],
+    "Canned Soup": [
+        "Tomatoes",
+        "Carrots",
+        "Beans",
+        "Lentils",
+        "Herbs",
+        "Olive Oil",
+        "Excess Sodium",
+        "Modified Food Starch",
+        "Monosodium Glutamate (MSG)",
+        "Artificial Flavors",
+    ],
+    "Flavored Chips": [
+        "Potatoes",
+        "Avocado Oil",
+        "Olive Oil",
+        "Sea Salt",
+        "Artificial Flavors",
+        "Monosodium Glutamate (MSG)",
+        "Yellow 6",
+        "Red 40",
+        "Excess Sodium",
+    ],
+    "Chocolate Chip Cookies": [
+        "Whole Wheat Flour",
+        "Oats",
+        "Butter",
+        "Eggs",
+        "Vanilla Extract",
+        "High Fructose Corn Syrup",
+        "Trans Fat (Partially Hydrogenated Oil)",
+        "Artificial Flavors",
+        "Added Sugar",
+    ],
 }
 
 
@@ -136,6 +202,101 @@ INGREDIENT_DICTIONARY = {
                     "but can trigger headaches or discomfort in sensitive "
                     "people.",
     },
+    "Excess Sodium": {
+        "type": "harmful",
+        "explanation": "Salt added beyond what's needed, often used to "
+                        "preserve food or boost flavor.",
+        "concern": "Consuming too much sodium regularly is linked to "
+                    "high blood pressure and heart strain.",
+    },
+    "Artificial Preservatives": {
+        "type": "harmful",
+        "explanation": "Man-made chemicals added to processed foods to "
+                        "extend shelf life.",
+        "concern": "Some artificial preservatives have been linked to "
+                    "allergic reactions and other concerns in sensitive "
+                    "people.",
+    },
+    "Refined White Flour": {
+        "type": "harmful",
+        "explanation": "Wheat flour stripped of its bran and germ, "
+                        "leaving mostly starch behind.",
+        "concern": "Lower in fiber and nutrients than whole grain flour, "
+                    "and can cause quicker blood sugar spikes.",
+    },
+    "Artificial Colors": {
+        "type": "harmful",
+        "explanation": "Man-made dyes added to make food look more "
+                        "vibrant or appealing.",
+        "concern": "Some artificial colors have been linked to "
+                    "hyperactivity in children and are being phased out "
+                    "in several countries.",
+    },
+    "Artificial Sweeteners": {
+        "type": "harmful",
+        "explanation": "Man-made sugar substitutes used to sweeten food "
+                        "without adding calories.",
+        "concern": "Some research links heavy use to changes in gut "
+                    "bacteria and continued sugar cravings.",
+    },
+    "Added Sugar": {
+        "type": "harmful",
+        "explanation": "Sugar added during processing rather than "
+                        "occurring naturally in the food.",
+        "concern": "Regularly eating extra added sugar is tied to weight "
+                    "gain and other long-term health risks.",
+    },
+    "Corn Syrup": {
+        "type": "harmful",
+        "explanation": "A sweet syrup made from corn starch, used to "
+                        "sweeten and add texture to processed foods.",
+        "concern": "Adds extra sugar and calories with little "
+                    "nutritional value.",
+    },
+    "Carrageenan": {
+        "type": "harmful",
+        "explanation": "A thickener extracted from red seaweed, used to "
+                        "give creamy foods a smooth texture.",
+        "concern": "Considered safe by most regulators, but some people "
+                    "prefer to avoid it due to possible digestive "
+                    "irritation.",
+    },
+    "Mono- and Diglycerides": {
+        "type": "harmful",
+        "explanation": "Emulsifiers that help keep water and fat blended "
+                        "together in foods like ice cream and baked goods.",
+        "concern": "Generally recognized as safe, though small amounts "
+                    "can be derived from trans fats.",
+    },
+    "Modified Food Starch": {
+        "type": "harmful",
+        "explanation": "A starch that's been chemically or physically "
+                        "altered to thicken or stabilize processed foods.",
+        "concern": "Highly processed and offers little nutritional "
+                    "value; can be a hidden source of extra carbs.",
+    },
+    "Artificial Flavors": {
+        "type": "harmful",
+        "explanation": "Lab-made flavor compounds used to mimic natural "
+                        "tastes.",
+        "concern": "Poorly regulated as a category, so it's hard to know "
+                    "exactly what's inside; can trigger sensitivities in "
+                    "some people.",
+    },
+    "Yellow 6": {
+        "type": "harmful",
+        "explanation": "A synthetic yellow-orange food dye used in "
+                        "snacks, candy, and drinks.",
+        "concern": "Linked in some studies to hyperactivity in children "
+                    "and allergic reactions in sensitive individuals.",
+    },
+    "Red 40": {
+        "type": "harmful",
+        "explanation": "A synthetic red food dye, one of the most widely "
+                        "used artificial colors.",
+        "concern": "Linked in some studies to hyperactivity in children; "
+                    "banned as a food additive in some countries.",
+    },
 
     # ---------------- HEALTHY ----------------
     "Whole Grain Wheat": {
@@ -210,6 +371,167 @@ INGREDIENT_DICTIONARY = {
                         "digestion and added to baked goods or smoothies.",
         "concern": "A great plant source of fiber and omega-3 fatty "
                     "acids.",
+    },
+    "Whole Wheat Crust": {
+        "type": "healthy",
+        "explanation": "Pizza crust made from whole wheat flour instead "
+                        "of refined white flour.",
+        "concern": "Provides more fiber and nutrients than a traditional "
+                    "white-flour crust.",
+    },
+    "Tomato Sauce": {
+        "type": "healthy",
+        "explanation": "A sauce made from cooked tomatoes, often with "
+                        "herbs and seasoning.",
+        "concern": "Good source of vitamin C and the antioxidant "
+                    "lycopene.",
+    },
+    "Mozzarella Cheese": {
+        "type": "healthy",
+        "explanation": "A soft, mild cheese made from milk, commonly "
+                        "used on pizza.",
+        "concern": "Provides protein and calcium, though best enjoyed "
+                    "in moderation due to saturated fat.",
+    },
+    "Spinach": {
+        "type": "healthy",
+        "explanation": "A leafy green vegetable often added for extra "
+                        "nutrition.",
+        "concern": "Rich in iron, fiber, and vitamins A and K.",
+    },
+    "Mushrooms": {
+        "type": "healthy",
+        "explanation": "An edible fungus used to add texture and umami "
+                        "flavor to dishes.",
+        "concern": "Low in calories and a good source of B vitamins and "
+                    "antioxidants.",
+    },
+    "100% Fruit Juice": {
+        "type": "healthy",
+        "explanation": "Juice made entirely from real fruit with "
+                        "nothing else added.",
+        "concern": "Provides vitamins and antioxidants, though it's "
+                    "still best enjoyed in moderation due to natural "
+                    "sugar content.",
+    },
+    "Vitamin C (Ascorbic Acid)": {
+        "type": "healthy",
+        "explanation": "A vitamin naturally found in fruit, sometimes "
+                        "added to boost nutrition or help preserve "
+                        "freshness.",
+        "concern": "Supports immune health and acts as an antioxidant.",
+    },
+    "No Added Sugar": {
+        "type": "healthy",
+        "explanation": "A label meaning no extra sugar was mixed in "
+                        "beyond what's naturally in the food.",
+        "concern": "Helps you avoid unnecessary added sugar in your "
+                    "diet.",
+    },
+    "Milk": {
+        "type": "healthy",
+        "explanation": "A natural dairy liquid that's a good source of "
+                        "protein and calcium.",
+        "concern": "Supports bone health, though those with lactose "
+                    "intolerance or a milk allergy should watch for it.",
+    },
+    "Cream": {
+        "type": "healthy",
+        "explanation": "The rich, fatty part of milk, used to add "
+                        "richness to desserts.",
+        "concern": "Adds calcium and richness, though it's high in "
+                    "saturated fat, so moderation is key.",
+    },
+    "Egg Yolks": {
+        "type": "healthy",
+        "explanation": "The yellow center of an egg, rich in flavor and "
+                        "nutrients.",
+        "concern": "Good source of protein, healthy fats, and vitamin D.",
+    },
+    "Vanilla Extract": {
+        "type": "healthy",
+        "explanation": "A natural flavoring made from vanilla beans.",
+        "concern": "Adds flavor without added sugar or artificial "
+                    "ingredients.",
+    },
+    "Cocoa": {
+        "type": "healthy",
+        "explanation": "Made from ground, roasted cacao beans, used to "
+                        "add chocolate flavor.",
+        "concern": "Contains antioxidants called flavanols that support "
+                    "heart health.",
+    },
+    "Tomatoes": {
+        "type": "healthy",
+        "explanation": "A juicy, nutrient-rich fruit commonly used as a "
+                        "vegetable in cooking.",
+        "concern": "High in vitamin C, potassium, and the antioxidant "
+                    "lycopene.",
+    },
+    "Carrots": {
+        "type": "healthy",
+        "explanation": "A crunchy root vegetable naturally high in "
+                        "beta-carotene.",
+        "concern": "Supports eye health and provides fiber and "
+                    "vitamin A.",
+    },
+    "Beans": {
+        "type": "healthy",
+        "explanation": "A plant-based protein and fiber source used in "
+                        "soups and stews.",
+        "concern": "Supports digestion and helps stabilize blood sugar.",
+    },
+    "Lentils": {
+        "type": "healthy",
+        "explanation": "Small legumes packed with plant protein and "
+                        "fiber.",
+        "concern": "Supports heart health and helps keep you full "
+                    "longer.",
+    },
+    "Herbs": {
+        "type": "healthy",
+        "explanation": "Fresh or dried plants used to season food "
+                        "naturally.",
+        "concern": "Add flavor without needing extra salt or sugar.",
+    },
+    "Potatoes": {
+        "type": "healthy",
+        "explanation": "A starchy root vegetable, often sliced and "
+                        "fried or baked into chips.",
+        "concern": "A good source of potassium and vitamin C when not "
+                    "deep-fried in unhealthy oils.",
+    },
+    "Avocado Oil": {
+        "type": "healthy",
+        "explanation": "An oil pressed from avocados, often used for "
+                        "cooking and frying.",
+        "concern": "Rich in heart-healthy monounsaturated fats.",
+    },
+    "Sea Salt": {
+        "type": "healthy",
+        "explanation": "Salt harvested from evaporated seawater, less "
+                        "processed than table salt.",
+        "concern": "Still sodium, so best in moderation, but free of "
+                    "the anti-caking additives found in table salt.",
+    },
+    "Whole Wheat Flour": {
+        "type": "healthy",
+        "explanation": "Flour ground from the entire wheat kernel, "
+                        "keeping the bran and germ.",
+        "concern": "Higher in fiber and nutrients than refined white "
+                    "flour.",
+    },
+    "Butter": {
+        "type": "healthy",
+        "explanation": "A dairy product made by churning cream.",
+        "concern": "Adds flavor and some vitamin A, though it's high in "
+                    "saturated fat, so moderation is key.",
+    },
+    "Eggs": {
+        "type": "healthy",
+        "explanation": "A versatile whole food that's a complete source "
+                        "of protein.",
+        "concern": "Provides protein, vitamins, and healthy fats.",
     },
 }
 
@@ -651,4 +973,6 @@ with st.sidebar:
         "SafeBite is an educational tool and should not replace "
         "professional medical advice or official product labels."
     )
+
+
 
