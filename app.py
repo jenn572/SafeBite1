@@ -9,7 +9,31 @@
 #     python3 -m streamlit run app.py
 # ============================================================
 
+import base64
+import os
+
 import streamlit as st
+
+
+# ---- 0. LOGO IMAGE (base64-encoded so it renders inline) -----
+
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "safebite_logo.png")
+
+
+def _get_logo_base64():
+    """Read the logo file and return it as a base64 string.
+
+    Returns None if the logo file isn't found next to app.py, so the
+    app still runs even if the image is missing.
+    """
+    try:
+        with open(LOGO_PATH, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        return None
+
+
+LOGO_BASE64 = _get_logo_base64()
 
 
 # ---- 1. OUR SMALL BUILT-IN FOOD LIST ------------------------
@@ -591,27 +615,21 @@ st.markdown(
             padding-bottom: 3rem;
         }
 
-        /* Header row */
-        .safebite-header {
+        /* Logo */
+        .safebite-logo-wrap {
             display: flex;
-            align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            margin-bottom: 0;
+            margin-bottom: 0.75rem;
         }
-        .safebite-title {
-            color: #526539;
-            font-size: 2.4rem;
-            font-weight: 800;
-            text-align: center;
-            margin-bottom: 0;
+        .safebite-logo {
+            width: 170px;
+            height: auto;
         }
-        .safebite-slogan {
-            color: #8C9B5D;
-            font-size: 1rem;
-            text-align: center;
-            margin-top: 0;
-            margin-bottom: 1.5rem;
+        /* Smaller logo on narrow / mobile screens */
+        @media (max-width: 600px) {
+            .safebite-logo {
+                width: 120px;
+            }
         }
 
         /* Greeting card */
@@ -764,14 +782,22 @@ st.markdown(
 
 # ---- 5. HEADER ----------------------------------------------
 
-st.markdown(
-    '<p class="safebite-title">🌿 SafeBite</p>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<p class="safebite-slogan">Love your food. Trust your bite.</p>',
-    unsafe_allow_html=True,
-)
+if LOGO_BASE64:
+    st.markdown(
+        f"""
+        <div class="safebite-logo-wrap">
+            <img class="safebite-logo" src="data:image/png;base64,{LOGO_BASE64}" alt="SafeBite logo">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    # Fallback text header in case the logo file isn't found.
+    st.markdown(
+        '<p style="color:#526539; font-size:2.4rem; font-weight:800; '
+        'text-align:center; margin-bottom:0;">🌿 SafeBite</p>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown(
     """
