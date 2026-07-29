@@ -52,7 +52,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "safebite_users.db")
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-STARTING_SCAN_COUNT = 16  # same starting stat as the app mockup
+STARTING_SCAN_COUNT = 0  # new accounts start with 0 scans
 
 
 def get_db_connection():
@@ -70,11 +70,20 @@ def init_db():
             name TEXT NOT NULL,
             salt TEXT NOT NULL,
             password_hash TEXT NOT NULL,
-            scan_count INTEGER DEFAULT 16,
+            scan_count INTEGER DEFAULT 0,
+            streak_count INTEGER DEFAULT 0,
+            last_login_date TEXT,
             created_at TEXT NOT NULL
         )
         """
     )
+    # Lightweight migration in case an older database (created before the
+    # streak feature existed) is missing these columns.
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "streak_count" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN streak_count INTEGER DEFAULT 0")
+    if "last_login_date" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login_date TEXT")
     conn.commit()
     conn.close()
 
@@ -133,6 +142,41 @@ def verify_login(email, password):
     if secrets.compare_digest(pwd_hash, user["password_hash"]):
         return user
     return None
+
+
+def record_login_streak(email):
+    """Update (and return) the user's daily login streak.
+
+    - Logging in again on the same day doesn't change the streak.
+    - Logging in exactly one day after the last login adds a day.
+    - Logging in after a gap of more than one day resets the streak to 1.
+    - A first-ever login (e.g. right after sign up) starts the streak at 1.
+    """
+    user = get_user(email)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    last_login = user["last_login_date"]
+    streak = user["streak_count"] or 0
+
+    if last_login == today_str:
+        new_streak = streak if streak else 1
+    elif last_login:
+        last_date = datetime.strptime(last_login, "%Y-%m-%d").date()
+        gap_days = (datetime.now().date() - last_date).days
+        new_streak = streak + 1 if gap_days == 1 else 1
+    else:
+        new_streak = 1
+
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE users SET streak_count = ?, last_login_date = ? WHERE email = ?",
+        (new_streak, today_str, email.strip().lower()),
+    )
+    conn.commit()
+    conn.close()
+
+    user["streak_count"] = new_streak
+    user["last_login_date"] = today_str
+    return user
 
 
 def update_scan_count(email, new_count):
@@ -707,6 +751,9 @@ if "auth_user" not in st.session_state:
 if "scan_count" not in st.session_state:
     st.session_state.scan_count = STARTING_SCAN_COUNT  # starting stat, like the app mockup
 
+if "streak_count" not in st.session_state:
+    st.session_state.streak_count = 0
+
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
@@ -896,6 +943,92 @@ st.markdown(
             border: 1px solid #8C9B5D !important;
             box-shadow: 0 0 0 1px #8C9B5D !important;
         }
+
+        /* Cute flickering fire animation for the streak stat */
+        .fire-emoji {
+            display: inline-block;
+            animation: fire-flicker 1.3s infinite ease-in-out;
+            transform-origin: center bottom;
+        }
+        @keyframes fire-flicker {
+            0%, 100% {
+                transform: scale(1) rotate(-3deg);
+                filter: drop-shadow(0 0 2px rgba(255, 140, 0, 0.5));
+            }
+            25% {
+                transform: scale(1.1) rotate(2deg);
+                filter: drop-shadow(0 0 4px rgba(255, 100, 0, 0.6));
+            }
+            50% {
+                transform: scale(0.94) rotate(-2deg);
+                filter: drop-shadow(0 0 6px rgba(255, 80, 0, 0.7));
+            }
+            75% {
+                transform: scale(1.06) rotate(3deg);
+                filter: drop-shadow(0 0 4px rgba(255, 120, 0, 0.6));
+            }
+        }
+
+        /* ---------------------------------------------------------
+           RESPONSIVE SIZING
+           Phones stay compact (the default sizing above).
+           Tablets (iPad-sized) and desktop screens get a wider
+           layout with larger text and roomier cards so nothing
+           feels cramped on a bigger screen.
+        --------------------------------------------------------- */
+
+        /* Tablets / iPad */
+        @media (min-width: 768px) {
+            .block-container {
+                max-width: 640px;
+                padding-top: 2rem;
+                padding-bottom: 3.5rem;
+            }
+            .safebite-logo { width: 190px; }
+            .greeting-card { padding: 1.15rem 1.4rem; }
+            .greeting-title { font-size: 1.45rem; }
+            .greeting-sub { font-size: 0.98rem; }
+            .stat-card { padding: 0.95rem; }
+            .stat-number { font-size: 1.6rem; }
+            .stat-label { font-size: 0.85rem; }
+            .hero-card { padding: 1.6rem 1.6rem; }
+            .hero-title { font-size: 1.55rem; }
+            .hero-sub { font-size: 0.98rem; }
+            .section-title { font-size: 1.2rem; }
+            .instruction-card { font-size: 0.95rem; padding: 1rem 1.2rem; }
+            .ingredient-card { font-size: 1rem; padding: 0.75rem 0.9rem; }
+            .dict-card { padding: 1rem 1.2rem; }
+            .dict-name { font-size: 1.08rem; }
+            .dict-explanation { font-size: 0.92rem; }
+            .dict-concern { font-size: 0.88rem; }
+        }
+
+        /* Desktop */
+        @media (min-width: 1024px) {
+            .block-container {
+                max-width: 860px;
+                padding-top: 2.5rem;
+                padding-bottom: 4rem;
+            }
+            .safebite-logo { width: 220px; }
+            .greeting-card { padding: 1.3rem 1.6rem; }
+            .greeting-title { font-size: 1.7rem; }
+            .greeting-sub { font-size: 1.05rem; }
+            .stat-card { padding: 1.1rem; }
+            .stat-number { font-size: 1.9rem; }
+            .stat-label { font-size: 0.92rem; }
+            .hero-card { padding: 1.9rem 2rem; }
+            .hero-title { font-size: 1.9rem; }
+            .hero-sub { font-size: 1.05rem; }
+            .section-title { font-size: 1.35rem; }
+            .instruction-card { font-size: 1rem; padding: 1.1rem 1.3rem; }
+            .ingredient-card { font-size: 1.05rem; padding: 0.85rem 1.1rem; }
+            .dict-card { padding: 1.1rem 1.3rem; }
+            .dict-name { font-size: 1.15rem; }
+            .dict-explanation { font-size: 0.95rem; }
+            .dict-concern { font-size: 0.92rem; }
+            .stButton > button { font-size: 1.02rem; padding: 0.8rem 1.1rem; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -957,8 +1090,10 @@ def render_auth_page():
             else:
                 user = verify_login(login_email, login_password)
                 if user:
+                    user = record_login_streak(user["email"])
                     st.session_state.auth_user = user
                     st.session_state.scan_count = user["scan_count"]
+                    st.session_state.streak_count = user["streak_count"]
                     st.session_state.last_result = None
                     st.rerun()
                 else:
@@ -997,9 +1132,10 @@ def render_auth_page():
                 )
             else:
                 create_user(signup_email, signup_password, signup_name)
-                user = get_user(signup_email)
+                user = record_login_streak(signup_email)
                 st.session_state.auth_user = user
                 st.session_state.scan_count = user["scan_count"]
+                st.session_state.streak_count = user["streak_count"]
                 st.session_state.last_result = None
                 st.success("Account created! Redirecting...")
                 st.rerun()
@@ -1035,10 +1171,10 @@ with stat_col1:
     )
 with stat_col2:
     st.markdown(
-        """
+        f"""
         <div class="stat-card">
-            <div class="stat-number">⭐ 4.8</div>
-            <div class="stat-label">Community Rating</div>
+            <div class="stat-number"><span class="fire-emoji">🔥</span> {st.session_state.streak_count}</div>
+            <div class="stat-label">Day Streak</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1212,7 +1348,7 @@ with tab_profile:
         unsafe_allow_html=True,
     )
 
-    prof_col1, prof_col2 = st.columns(2)
+    prof_col1, prof_col2, prof_col3 = st.columns(3)
     with prof_col1:
         st.markdown(
             f"""
@@ -1224,6 +1360,16 @@ with tab_profile:
             unsafe_allow_html=True,
         )
     with prof_col2:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number"><span class="fire-emoji">🔥</span> {st.session_state.streak_count}</div>
+                <div class="stat-label">Day Streak</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with prof_col3:
         st.markdown(
             f"""
             <div class="stat-card">
@@ -1240,6 +1386,7 @@ with tab_profile:
     if st.button("Log Out", key="profile_logout"):
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
+        st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.rerun()
 
@@ -1269,8 +1416,7 @@ with st.sidebar:
     if st.button("Log Out", key="sidebar_logout"):
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
+        st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.rerun()
-
-
 
