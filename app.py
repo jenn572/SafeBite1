@@ -10,7 +10,13 @@
 # ============================================================
 
 import base64
+import hashlib
+import html
 import os
+import re
+import secrets
+import sqlite3
+from datetime import datetime
 
 import streamlit as st
 
@@ -34,6 +40,109 @@ def _get_logo_base64():
 
 
 LOGO_BASE64 = _get_logo_base64()
+
+
+# ---- 0.5 ACCOUNT DATABASE -------------------------------------
+# A small local SQLite database that stores each user's account
+# (email + salted/hashed password + display name + scan count).
+# The database file lives right next to app.py, so it persists
+# between runs on the same machine.
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "safebite_users.db")
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+STARTING_SCAN_COUNT = 16  # same starting stat as the app mockup
+
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db_connection()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            scan_count INTEGER DEFAULT 16,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def is_valid_email(email):
+    return bool(EMAIL_PATTERN.match(email.strip()))
+
+
+def hash_password(password, salt=None):
+    """Salt + hash a password with PBKDF2-SHA256. Never store plain text."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    pwd_hash = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), 100_000
+    ).hex()
+    return salt, pwd_hash
+
+
+def get_user(email):
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_user(email, password, name):
+    email = email.strip().lower()
+    salt, pwd_hash = hash_password(password)
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO users (email, name, salt, password_hash, scan_count, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            email,
+            name.strip(),
+            salt,
+            pwd_hash,
+            STARTING_SCAN_COUNT,
+            datetime.now().strftime("%B %Y"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def verify_login(email, password):
+    user = get_user(email)
+    if not user:
+        return None
+    _, pwd_hash = hash_password(password, salt=user["salt"])
+    if secrets.compare_digest(pwd_hash, user["password_hash"]):
+        return user
+    return None
+
+
+def update_scan_count(email, new_count):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE users SET scan_count = ? WHERE email = ?",
+        (new_count, email.strip().lower()),
+    )
+    conn.commit()
+    conn.close()
 
 
 # ---- 1. OUR SMALL BUILT-IN FOOD LIST ------------------------
@@ -592,8 +701,11 @@ st.set_page_config(
     layout="centered",
 )
 
+if "auth_user" not in st.session_state:
+    st.session_state.auth_user = None  # holds the logged-in user's DB record
+
 if "scan_count" not in st.session_state:
-    st.session_state.scan_count = 16  # starting stat, like the app mockup
+    st.session_state.scan_count = STARTING_SCAN_COUNT  # starting stat, like the app mockup
 
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
@@ -774,6 +886,16 @@ st.markdown(
         [data-testid="stSidebar"] {
             background-color: #DCE4C9;
         }
+
+        /* Login / Sign up text inputs */
+        .stTextInput > div > div > input {
+            border-radius: 10px !important;
+            border: 1px solid #DCE4C9 !important;
+        }
+        .stTextInput > div > div > input:focus {
+            border: 1px solid #8C9B5D !important;
+            box-shadow: 0 0 0 1px #8C9B5D !important;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -799,10 +921,101 @@ else:
         unsafe_allow_html=True,
     )
 
+
+# ---- 5.5 LOGIN / SIGN UP GATE ---------------------------------
+# The rest of the app only renders once someone is logged in.
+
+def render_auth_page():
+    st.markdown(
+        """
+        <div class="instruction-card">
+            <strong>Welcome to SafeBite!</strong> Log in or create a free
+            account to start scanning ingredients and track your progress.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    login_tab, signup_tab = st.tabs(["🔐 Log In", "✨ Sign Up"])
+
+    # ---- Log In ----
+    with login_tab:
+        with st.form("login_form"):
+            login_email = st.text_input(
+                "Email address", placeholder="you@gmail.com", key="login_email"
+            )
+            login_password = st.text_input(
+                "Password", type="password", key="login_password"
+            )
+            login_submit = st.form_submit_button("Log In", type="primary")
+
+        if login_submit:
+            if not login_email or not login_password:
+                st.error("Please enter both your email and password.")
+            elif not is_valid_email(login_email):
+                st.error("Please enter a valid email address.")
+            else:
+                user = verify_login(login_email, login_password)
+                if user:
+                    st.session_state.auth_user = user
+                    st.session_state.scan_count = user["scan_count"]
+                    st.session_state.last_result = None
+                    st.rerun()
+                else:
+                    st.error("Incorrect email or password.")
+
+    # ---- Sign Up ----
+    with signup_tab:
+        with st.form("signup_form"):
+            signup_name = st.text_input(
+                "Your name", placeholder="Maya", key="signup_name"
+            )
+            signup_email = st.text_input(
+                "Email address", placeholder="you@gmail.com", key="signup_email"
+            )
+            signup_password = st.text_input(
+                "Password", type="password", key="signup_password"
+            )
+            signup_confirm = st.text_input(
+                "Confirm password", type="password", key="signup_confirm"
+            )
+            signup_submit = st.form_submit_button("Create Account", type="primary")
+
+        if signup_submit:
+            if not signup_name or not signup_email or not signup_password:
+                st.error("Please fill in all fields.")
+            elif not is_valid_email(signup_email):
+                st.error("Please enter a valid email address.")
+            elif len(signup_password) < 6:
+                st.error("Your password should be at least 6 characters.")
+            elif signup_password != signup_confirm:
+                st.error("Those passwords don't match.")
+            elif get_user(signup_email):
+                st.error(
+                    "An account with that email already exists — try "
+                    "logging in instead."
+                )
+            else:
+                create_user(signup_email, signup_password, signup_name)
+                user = get_user(signup_email)
+                st.session_state.auth_user = user
+                st.session_state.scan_count = user["scan_count"]
+                st.session_state.last_result = None
+                st.success("Account created! Redirecting...")
+                st.rerun()
+
+
+if st.session_state.auth_user is None:
+    render_auth_page()
+    st.stop()
+
+current_user = st.session_state.auth_user
+display_name = current_user["name"] or current_user["email"].split("@")[0]
+
 st.markdown(
-    """
+    f"""
     <div class="greeting-card">
-        <div class="greeting-title">Hi there! 👋</div>
+        <div class="greeting-title">Hi, {html.escape(display_name)}! 👋</div>
         <div class="greeting-sub">You're on your way to stronger, healthier habits.</div>
     </div>
     """,
@@ -834,7 +1047,9 @@ with stat_col2:
 
 # ---- 6. TOP NAVIGATION ---------------------------------------
 
-tab_scan, tab_dictionary = st.tabs(["🔍  Scanner", "📖  Dictionary"])
+tab_scan, tab_dictionary, tab_profile = st.tabs(
+    ["🔍  Scanner", "📖  Dictionary", "👤  Profile"]
+)
 
 
 # ============================================================
@@ -870,6 +1085,7 @@ with tab_scan:
     if check_button:
         st.session_state.scan_count += 1
         st.session_state.last_result = choice
+        update_scan_count(current_user["email"], st.session_state.scan_count)
 
     if st.session_state.last_result:
         result_choice = st.session_state.last_result
@@ -980,7 +1196,54 @@ with tab_dictionary:
         )
 
 
-# ---- 7. SIDEBAR ---------------------------------------------
+# ============================================================
+#  PROFILE TAB
+# ============================================================
+
+with tab_profile:
+
+    st.markdown(
+        f"""
+        <div class="greeting-card">
+            <div class="greeting-title">{html.escape(display_name)}</div>
+            <div class="greeting-sub">{html.escape(current_user['email'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    prof_col1, prof_col2 = st.columns(2)
+    with prof_col1:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number">{st.session_state.scan_count}</div>
+                <div class="stat-label">Total Scans</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with prof_col2:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number">{html.escape(current_user['created_at'])}</div>
+                <div class="stat-label">Member Since</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
+    st.write("")
+
+    if st.button("Log Out", key="profile_logout"):
+        st.session_state.auth_user = None
+        st.session_state.scan_count = STARTING_SCAN_COUNT
+        st.session_state.last_result = None
+        st.rerun()
+
+
 
 with st.sidebar:
     st.header("🌿 About SafeBite")
@@ -999,6 +1262,15 @@ with st.sidebar:
         "SafeBite is an educational tool and should not replace "
         "professional medical advice or official product labels."
     )
+
+    st.divider()
+
+    st.write(f"Logged in as **{current_user['email']}**")
+    if st.button("Log Out", key="sidebar_logout"):
+        st.session_state.auth_user = None
+        st.session_state.scan_count = STARTING_SCAN_COUNT
+        st.session_state.last_result = None
+        st.rerun()
 
 
 
