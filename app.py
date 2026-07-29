@@ -757,6 +757,14 @@ if "streak_count" not in st.session_state:
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
+# Show the splash screen only once per browser session (the very first
+# script run) — not on every rerun triggered by clicks, tabs, etc.
+if "splash_shown" not in st.session_state:
+    show_splash = True
+    st.session_state.splash_shown = True
+else:
+    show_splash = False
+
 
 # ---- 4. APP-STYLE CSS ----------------------------------------
 
@@ -1029,10 +1037,129 @@ st.markdown(
             .dict-concern { font-size: 0.92rem; }
             .stButton > button { font-size: 1.02rem; padding: 0.8rem 1.1rem; }
         }
+
+        /* ---------------------------------------------------------
+           SPLASH SCREEN
+           A full-screen overlay shown once when the app first
+           loads. It pops in, holds for about two seconds, then
+           dissolves away to reveal the app underneath.
+        --------------------------------------------------------- */
+        .safebite-splash {
+            position: fixed;
+            inset: 0;
+            background-color: #FDF7EF;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: safebite-splash-fade-out 0.8s ease forwards;
+            animation-delay: 2s;
+        }
+        .safebite-splash-inner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.4rem;
+            animation: safebite-splash-pop-in 0.5s ease;
+        }
+        .safebite-splash-logo {
+            width: min(200px, 42vw);
+            height: auto;
+        }
+        .safebite-splash-tagline {
+            color: #8C9B5D;
+            font-size: clamp(0.85rem, 2vw, 1.05rem);
+            letter-spacing: 0.02em;
+            margin: 0;
+        }
+        @keyframes safebite-splash-pop-in {
+            0% { opacity: 0; transform: translateY(10px) scale(0.96); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes safebite-splash-fade-out {
+            0% { opacity: 1; visibility: visible; }
+            99% { opacity: 0; visibility: visible; }
+            100% { opacity: 0; visibility: hidden; pointer-events: none; }
+        }
+
+        /* The spinning "loading" circle made of 8 fading blades */
+        .lds-spinner {
+            position: relative;
+            display: inline-block;
+            width: 64px;
+            height: 64px;
+        }
+        .lds-spinner div {
+            transform-origin: 32px 32px;
+            animation: lds-spinner-fade 1.2s linear infinite;
+        }
+        .lds-spinner div:after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 3px;
+            left: 29px;
+            width: 6px;
+            height: 16px;
+            border-radius: 20%;
+            background: #8C9B5D;
+        }
+        .lds-spinner div:nth-child(1) { transform: rotate(0deg); animation-delay: -1.1s; }
+        .lds-spinner div:nth-child(2) { transform: rotate(45deg); animation-delay: -1s; }
+        .lds-spinner div:nth-child(3) { transform: rotate(90deg); animation-delay: -0.9s; }
+        .lds-spinner div:nth-child(4) { transform: rotate(135deg); animation-delay: -0.8s; }
+        .lds-spinner div:nth-child(5) { transform: rotate(180deg); animation-delay: -0.7s; }
+        .lds-spinner div:nth-child(6) { transform: rotate(225deg); animation-delay: -0.6s; }
+        .lds-spinner div:nth-child(7) { transform: rotate(270deg); animation-delay: -0.5s; }
+        .lds-spinner div:nth-child(8) { transform: rotate(315deg); animation-delay: -0.4s; }
+        @keyframes lds-spinner-fade {
+            0% { opacity: 1; }
+            100% { opacity: 0.15; }
+        }
+
+        /* Slightly smaller splash elements on narrow phone screens */
+        @media (max-width: 420px) {
+            .lds-spinner { transform: scale(0.8); }
+            .safebite-splash-inner { gap: 1.1rem; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ---- 4.5 SPLASH SCREEN -----------------------------------------
+# Shown once, right when the app first loads. It sits on top of
+# everything else (position: fixed) and dissolves away on its own
+# via the CSS animation defined above — no page reload needed.
+
+if show_splash:
+    if LOGO_BASE64:
+        _splash_logo_html = (
+            f'<img class="safebite-splash-logo" '
+            f'src="data:image/png;base64,{LOGO_BASE64}" alt="SafeBite logo">'
+        )
+    else:
+        _splash_logo_html = (
+            '<p style="color:#526539; font-size:2rem; font-weight:800;">'
+            '🌿 SafeBite</p>'
+        )
+
+    st.markdown(
+        f"""
+        <div class="safebite-splash">
+            <div class="safebite-splash-inner">
+                {_splash_logo_html}
+                <div class="lds-spinner">
+                    <div></div><div></div><div></div><div></div>
+                    <div></div><div></div><div></div><div></div>
+                </div>
+                <p class="safebite-splash-tagline">Loading your healthier bite…</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ---- 5. HEADER ----------------------------------------------
