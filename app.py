@@ -1,8 +1,3 @@
-# ============================================================
-#  SafeBite - Sprint 2
-#  The user selects a product and sees its ingredients,
-#  ingredient warnings, allergy alerts, and can browse a
-#  full Ingredient Dictionary of harmful & healthy ingredients.
 #
 #  HOW TO RUN:
 #     python3 -m pip install -r requirements.txt
@@ -17,9 +12,10 @@ import json
 import os
 import re
 import secrets
-import sqlite3
 from datetime import datetime
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from PIL import Image
 
 import streamlit as st
@@ -47,27 +43,34 @@ LOGO_BASE64 = _get_logo_base64()
 
 
 # ---- 0.5 ACCOUNT DATABASE -------------------------------------
-# A small local SQLite database that stores each user's account
-# (email + salted/hashed password + display name + scan count).
-# The database file lives right next to app.py, so it persists
-# between runs on the same machine.
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "safebite_users.db")
+# Accounts are stored in a hosted Postgres database (Supabase) instead
+# of a local file, so they survive redeploys and app restarts. The
+# connection string lives in Streamlit's secrets manager, never in
+# the code itself.
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 STARTING_SCAN_COUNT = 0  # new accounts start with 0 scans
 
+if "DATABASE_URL" not in st.secrets:
+    st.error(
+        "Database isn't configured yet. Add a DATABASE_URL secret in "
+        "Streamlit Cloud → your app → Settings → Secrets."
+    )
+    st.stop()
+
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Open a fresh connection to the Postgres database. Each function
+    below opens one, uses it briefly, and closes it — this matches how
+    Supabase's Session pooler connection string is meant to be used."""
+    return psycopg2.connect(st.secrets["DATABASE_URL"], cursor_factory=RealDictCursor)
 
 
 def init_db():
     conn = get_db_connection()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
             email TEXT PRIMARY KEY,
@@ -83,22 +86,28 @@ def init_db():
         )
         """
     )
-    # Lightweight migration in case an older database (created before the
-    # streak / profile features existed) is missing these columns.
-    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
-    if "streak_count" not in existing_cols:
-        conn.execute("ALTER TABLE users ADD COLUMN streak_count INTEGER DEFAULT 0")
-    if "last_login_date" not in existing_cols:
-        conn.execute("ALTER TABLE users ADD COLUMN last_login_date TEXT")
-    if "allergies" not in existing_cols:
-        conn.execute("ALTER TABLE users ADD COLUMN allergies TEXT DEFAULT '[]'")
-    if "profile_picture" not in existing_cols:
-        conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
+    # Migration-safe: adds these columns if an older version of the
+    # table already exists without them. Postgres supports "IF NOT
+    # EXISTS" directly on ADD COLUMN, unlike SQLite.
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_count INTEGER DEFAULT 0")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_date TEXT")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT '[]'")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT")
     conn.commit()
+    cur.close()
     conn.close()
 
 
-init_db()
+@st.cache_resource
+def _ensure_schema():
+    """Run init_db() only once per running app (not on every rerun) —
+    st.cache_resource keeps this from hitting the database on every
+    single click."""
+    init_db()
+    return True
+
+
+_ensure_schema()
 
 
 def is_valid_email(email):
@@ -131,9 +140,10 @@ def hash_password(password, salt=None):
 
 def get_user(email):
     conn = get_db_connection()
-    row = conn.execute(
-        "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE email = %s", (email.strip().lower(),))
+    row = cur.fetchone()
+    cur.close()
     conn.close()
     return dict(row) if row else None
 
@@ -142,9 +152,10 @@ def create_user(email, password, name):
     email = email.strip().lower()
     salt, pwd_hash = hash_password(password)
     conn = get_db_connection()
-    conn.execute(
+    cur = conn.cursor()
+    cur.execute(
         "INSERT INTO users (email, name, salt, password_hash, scan_count, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s, %s)",
         (
             email,
             name.strip(),
@@ -155,6 +166,7 @@ def create_user(email, password, name):
         ),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -191,11 +203,13 @@ def record_login_streak(email):
         new_streak = 1
 
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE users SET streak_count = ?, last_login_date = ? WHERE email = ?",
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET streak_count = %s, last_login_date = %s WHERE email = %s",
         (new_streak, today_str, email.strip().lower()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
     user["streak_count"] = new_streak
@@ -205,11 +219,13 @@ def record_login_streak(email):
 
 def update_scan_count(email, new_count):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE users SET scan_count = ? WHERE email = ?",
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET scan_count = %s WHERE email = %s",
         (new_count, email.strip().lower()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -223,21 +239,25 @@ def get_user_allergies(user):
 
 def update_user_allergies(email, allergies_list):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE users SET allergies = ? WHERE email = ?",
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET allergies = %s WHERE email = %s",
         (json.dumps(allergies_list), email.strip().lower()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def update_profile_picture(email, picture_base64):
     conn = get_db_connection()
-    conn.execute(
-        "UPDATE users SET profile_picture = ? WHERE email = ?",
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET profile_picture = %s WHERE email = %s",
         (picture_base64, email.strip().lower()),
     )
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -249,6 +269,7 @@ def process_profile_picture(uploaded_file):
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=85)
     return base64.b64encode(buffer.getvalue()).decode()
+
 
 
 # ---- 1. OUR SMALL BUILT-IN FOOD LIST ------------------------
