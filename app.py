@@ -1059,6 +1059,31 @@ st.markdown(
             background-color: #DCE4C9;
         }
 
+        /* ---------------------------------------------------------
+           Streamlit's built-in accent color defaults to red. The
+           .streamlit/config.toml theme fixes most of this app-wide,
+           but these rules act as a CSS-level backup for the same
+           elements shown in red before (tabs, selected pills/tags).
+        --------------------------------------------------------- */
+        .stTabs [data-baseweb="tab-highlight"] {
+            background-color: #526539 !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            color: #6B7B57 !important;
+        }
+        .stTabs button[aria-selected="true"] {
+            color: #526539 !important;
+        }
+        .stMultiSelect [data-baseweb="tag"] {
+            background-color: #8C9B5D !important;
+        }
+        .stRadio [role="radiogroup"] label div:first-child {
+            border-color: #8C9B5D !important;
+        }
+        .stRadio [role="radiogroup"] label[data-baseweb="radio"] div:first-child div {
+            background-color: #526539 !important;
+        }
+
         /* Login / Sign up text inputs */
         .stTextInput > div > div > input {
             border-radius: 10px !important;
@@ -1638,7 +1663,7 @@ with tab_scan:
         allergen_hits = [i for i in ingredients if i in ALLERGENS]
 
         if allergen_hits:
-            st.error("🚨 Allergy alert: " + ", ".join(allergen_hits))
+            auth_message("🚨 Allergy alert: " + ", ".join(allergen_hits))
         else:
             st.info("No allergens from our current allergen list were found.")
 
@@ -1879,4 +1904,3 @@ with st.sidebar:
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
-
