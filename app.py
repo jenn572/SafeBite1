@@ -12,11 +12,15 @@
 import base64
 import hashlib
 import html
+import io
+import json
 import os
 import re
 import secrets
 import sqlite3
 from datetime import datetime
+
+from PIL import Image
 
 import streamlit as st
 
@@ -73,17 +77,23 @@ def init_db():
             scan_count INTEGER DEFAULT 0,
             streak_count INTEGER DEFAULT 0,
             last_login_date TEXT,
+            allergies TEXT DEFAULT '[]',
+            profile_picture TEXT,
             created_at TEXT NOT NULL
         )
         """
     )
     # Lightweight migration in case an older database (created before the
-    # streak feature existed) is missing these columns.
+    # streak / profile features existed) is missing these columns.
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     if "streak_count" not in existing_cols:
         conn.execute("ALTER TABLE users ADD COLUMN streak_count INTEGER DEFAULT 0")
     if "last_login_date" not in existing_cols:
         conn.execute("ALTER TABLE users ADD COLUMN last_login_date TEXT")
+    if "allergies" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN allergies TEXT DEFAULT '[]'")
+    if "profile_picture" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
     conn.commit()
     conn.close()
 
@@ -201,6 +211,44 @@ def update_scan_count(email, new_count):
     )
     conn.commit()
     conn.close()
+
+
+def get_user_allergies(user):
+    """Parse a user's stored allergies (JSON text) into a Python list."""
+    try:
+        return json.loads(user["allergies"]) if user["allergies"] else []
+    except (TypeError, ValueError):
+        return []
+
+
+def update_user_allergies(email, allergies_list):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE users SET allergies = ? WHERE email = ?",
+        (json.dumps(allergies_list), email.strip().lower()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_profile_picture(email, picture_base64):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE users SET profile_picture = ? WHERE email = ?",
+        (picture_base64, email.strip().lower()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def process_profile_picture(uploaded_file):
+    """Resize an uploaded image down to a small square-ish thumbnail and
+    return it as a base64 JPEG string, so the database stays lightweight."""
+    image = Image.open(uploaded_file).convert("RGB")
+    image.thumbnail((320, 320))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return base64.b64encode(buffer.getvalue()).decode()
 
 
 # ---- 1. OUR SMALL BUILT-IN FOOD LIST ------------------------
@@ -739,7 +787,7 @@ HEALTHY_HIGHLIGHTS = {
     if data["type"] == "healthy"
 }
 
-# Common allergens to flag.
+# Common allergens to flag (used by the general product allergen check).
 ALLERGENS = [
     "Peanuts",
     "Wheat",
@@ -749,6 +797,61 @@ ALLERGENS = [
     "Almonds",
     "Walnuts",
 ]
+
+# ---- 2.5 PERSONAL ALLERGY PROFILE ----------------------------
+# The full list of common allergens a user can pick from on their
+# profile page.
+
+COMMON_ALLERGENS = [
+    "Milk", "Eggs", "Peanuts", "Tree Nuts", "Almonds", "Walnuts", "Cashews",
+    "Pecans", "Pistachios", "Hazelnuts", "Macadamia Nuts", "Brazil Nuts",
+    "Wheat", "Soy", "Fish", "Shellfish", "Shrimp", "Crab", "Lobster",
+    "Scallops", "Clams", "Mussels", "Oysters", "Sesame", "Corn", "Mustard",
+    "Celery", "Lupin", "Sulfites", "Oats", "Rye", "Barley", "Gluten",
+    "Coconut", "Sunflower Seeds", "Chickpeas", "Lentils", "Peas", "Beans",
+    "Tomatoes", "Strawberries", "Kiwi", "Bananas", "Avocado", "Pineapple",
+    "Peaches", "Apples", "Citrus", "Mango", "Garlic", "Onion", "Chocolate",
+    "Cocoa", "Coffee", "Vanilla", "Yeast", "Beef", "Chicken", "Pork",
+    "Turkey", "Gelatin",
+]
+
+# A couple of the options above are umbrella categories that group
+# several more specific items right below them in the list — when a
+# user selects the umbrella term, treat the specific items as covered
+# too when scanning a product.
+ALLERGY_CATEGORY_EXPANSIONS = {
+    "Tree Nuts": [
+        "Almonds", "Walnuts", "Cashews", "Pecans", "Pistachios",
+        "Hazelnuts", "Macadamia Nuts", "Brazil Nuts",
+    ],
+    "Shellfish": [
+        "Shrimp", "Crab", "Lobster", "Scallops", "Clams", "Mussels",
+        "Oysters",
+    ],
+}
+
+
+def find_matching_allergens(ingredients, user_allergies):
+    """Return which of the user's saved allergies show up in this
+    product's ingredient list (case-insensitive, matching either
+    direction so e.g. "Wheat" matches an ingredient like "Wheat Flour").
+    """
+    if not user_allergies:
+        return []
+
+    ingredients_lower = [i.lower() for i in ingredients]
+    matched = []
+    for allergy in user_allergies:
+        terms = [allergy] + ALLERGY_CATEGORY_EXPANSIONS.get(allergy, [])
+        terms_lower = [t.lower() for t in terms]
+        hit = any(
+            term in ing or ing in term
+            for term in terms_lower
+            for ing in ingredients_lower
+        )
+        if hit:
+            matched.append(allergy)
+    return matched
 
 
 # ---- 3. PAGE SETUP ------------------------------------------
@@ -1171,6 +1274,73 @@ st.markdown(
             .lds-spinner { transform: scale(0.8); }
             .safebite-splash-inner { gap: 1.1rem; }
         }
+
+        /* Personal allergy warning banner — the first thing shown in a
+           scan result when a saved allergy is found in the product. */
+        .allergy-warning-banner {
+            background-color: #FFEAEA;
+            border: 2px solid #FF6B6B;
+            color: #FF6B6B;
+            text-transform: uppercase;
+            font-weight: 800;
+            text-align: center;
+            padding: 1rem 1.1rem;
+            border-radius: 16px;
+            margin-bottom: 1.1rem;
+            letter-spacing: 0.02em;
+            line-height: 1.4;
+            animation: allergy-pulse 1.1s infinite ease-in-out;
+        }
+        @keyframes allergy-pulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 rgba(255, 107, 107, 0.35);
+            }
+            50% {
+                transform: scale(1.02);
+                box-shadow: 0 0 16px rgba(255, 107, 107, 0.55);
+            }
+        }
+
+        /* Profile picture avatar */
+        .profile-avatar-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 0.75rem;
+        }
+        .profile-avatar-img {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #DCE4C9;
+        }
+        .profile-avatar-placeholder {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: #8C9B5D;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.4rem;
+            font-weight: 700;
+            border: 3px solid #DCE4C9;
+        }
+
+        /* Allergy chips shown on the profile page */
+        .allergy-chip {
+            display: inline-block;
+            background-color: #EAF3E2;
+            border: 1px solid #BBD9A0;
+            color: #3F6B24;
+            border-radius: 999px;
+            padding: 0.25rem 0.75rem;
+            margin: 0.2rem 0.3rem 0.2rem 0;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1280,6 +1450,8 @@ def render_auth_page():
                     st.session_state.scan_count = user["scan_count"]
                     st.session_state.streak_count = user["streak_count"]
                     st.session_state.last_result = None
+                    st.session_state.pop("allergy_select", None)
+                    st.session_state.pop("last_uploaded_pic_fingerprint", None)
                     st.rerun()
                 else:
                     auth_message("Incorrect email or password.")
@@ -1326,6 +1498,8 @@ def render_auth_page():
                 st.session_state.scan_count = user["scan_count"]
                 st.session_state.streak_count = user["streak_count"]
                 st.session_state.last_result = None
+                st.session_state.pop("allergy_select", None)
+                st.session_state.pop("last_uploaded_pic_fingerprint", None)
                 st.success("Account created! Redirecting...")
                 st.rerun()
 
@@ -1415,6 +1589,21 @@ with tab_scan:
     if st.session_state.last_result:
         result_choice = st.session_state.last_result
         ingredients = PRODUCTS[result_choice]
+
+        # ---- Personal allergy warning (shown first, above everything) ----
+        user_allergies = get_user_allergies(current_user)
+        personal_matches = find_matching_allergens(ingredients, user_allergies)
+
+        if personal_matches:
+            matches_text = ", ".join(html.escape(a) for a in personal_matches)
+            st.markdown(
+                f"""
+                <div class="allergy-warning-banner">
+                    ⚠️ allergy warning<br>this product contains: {matches_text}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         st.divider()
         st.subheader(f"📦 {result_choice}")
@@ -1527,6 +1716,48 @@ with tab_dictionary:
 
 with tab_profile:
 
+    # ---- Profile picture ----
+    if current_user["profile_picture"]:
+        st.markdown(
+            f"""
+            <div class="profile-avatar-wrap">
+                <img class="profile-avatar-img"
+                     src="data:image/jpeg;base64,{current_user['profile_picture']}"
+                     alt="Profile picture">
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        initial = display_name[0].upper() if display_name else "?"
+        st.markdown(
+            f"""
+            <div class="profile-avatar-wrap">
+                <div class="profile-avatar-placeholder">{html.escape(initial)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    uploaded_pic = st.file_uploader(
+        "Change profile picture",
+        type=["png", "jpg", "jpeg"],
+        key="profile_pic_uploader",
+    )
+    if uploaded_pic is not None:
+        # file_uploader keeps returning the same file on every rerun until
+        # a new one is chosen, so fingerprint it to avoid reprocessing
+        # (and re-triggering st.rerun()) on every single interaction.
+        pic_fingerprint = f"{uploaded_pic.name}-{uploaded_pic.size}"
+        if st.session_state.get("last_uploaded_pic_fingerprint") != pic_fingerprint:
+            picture_b64 = process_profile_picture(uploaded_pic)
+            update_profile_picture(current_user["email"], picture_b64)
+            current_user["profile_picture"] = picture_b64
+            st.session_state.auth_user = current_user
+            st.session_state.last_uploaded_pic_fingerprint = pic_fingerprint
+            st.success("Profile picture updated!")
+            st.rerun()
+
     st.markdown(
         f"""
         <div class="greeting-card">
@@ -1570,6 +1801,42 @@ with tab_profile:
         )
 
     st.write("")
+
+    # ---- Allergies ----
+    st.markdown('<p class="section-title">🚫 Your Allergies</p>', unsafe_allow_html=True)
+    st.caption(
+        "Pick any allergies below — we'll warn you if a scanned product "
+        "contains them. Add or remove allergies here any time."
+    )
+
+    current_allergies = get_user_allergies(current_user)
+
+    def _save_allergies():
+        selected = st.session_state.get("allergy_select", [])
+        update_user_allergies(current_user["email"], selected)
+        current_user["allergies"] = json.dumps(selected)
+        st.session_state.auth_user = current_user
+
+    st.multiselect(
+        "Your allergies",
+        options=COMMON_ALLERGENS,
+        default=current_allergies,
+        key="allergy_select",
+        on_change=_save_allergies,
+        label_visibility="collapsed",
+        placeholder="Search and select allergies...",
+    )
+
+    if current_allergies:
+        chips_html = "".join(
+            f'<span class="allergy-chip">{html.escape(a)}</span>'
+            for a in current_allergies
+        )
+        st.markdown(chips_html, unsafe_allow_html=True)
+    else:
+        st.caption("No allergies saved yet.")
+
+    st.write("")
     st.write("")
 
     if st.button("Log Out", key="profile_logout"):
@@ -1577,6 +1844,8 @@ with tab_profile:
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
         st.session_state.last_result = None
+        st.session_state.pop("allergy_select", None)
+        st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
 
 
@@ -1607,4 +1876,7 @@ with st.sidebar:
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
         st.session_state.last_result = None
+        st.session_state.pop("allergy_select", None)
+        st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
+
