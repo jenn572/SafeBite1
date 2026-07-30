@@ -95,6 +95,20 @@ def is_valid_email(email):
     return bool(EMAIL_PATTERN.match(email.strip()))
 
 
+PASSWORD_REQUIREMENTS_TEXT = (
+    "Password must have a minimum of 6 characters, 1 symbol, and 1 number"
+)
+
+
+def is_strong_password(password):
+    """At least 6 characters, at least one digit, at least one symbol."""
+    if len(password) < 6:
+        return False
+    has_digit = any(ch.isdigit() for ch in password)
+    has_symbol = any(not ch.isalnum() for ch in password)
+    return has_digit and has_symbol
+
+
 def hash_password(password, salt=None):
     """Salt + hash a password with PBKDF2-SHA256. Never store plain text."""
     if salt is None:
@@ -952,6 +966,41 @@ st.markdown(
             box-shadow: 0 0 0 1px #8C9B5D !important;
         }
 
+        /* Log In / Create Account buttons (form submit buttons aren't
+           covered by the .stButton rule above, so they're styled here) */
+        .stFormSubmitButton > button {
+            width: 100%;
+            background-color: #2E7D32 !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 0.7rem 1rem !important;
+            font-weight: 600 !important;
+        }
+        .stFormSubmitButton > button:hover {
+            background-color: #26692A !important;
+            color: white !important;
+            border: none !important;
+        }
+
+        /* Validation messages on the Log In / Sign Up page (dark green
+           instead of Streamlit's default red alerts) */
+        .auth-message {
+            background-color: #E8F3E8;
+            border: 1px solid #2E7D32;
+            color: #2E7D32;
+            border-radius: 12px;
+            padding: 0.65rem 1rem;
+            margin-bottom: 0.8rem;
+            font-size: 0.9rem;
+        }
+        .auth-password-hint {
+            color: #2E7D32;
+            font-size: 0.82rem;
+            margin-top: -0.6rem;
+            margin-bottom: 0.6rem;
+        }
+
         /* Cute flickering fire animation for the streak stat */
         .fire-emoji {
             display: inline-block;
@@ -1185,6 +1234,15 @@ else:
 # ---- 5.5 LOGIN / SIGN UP GATE ---------------------------------
 # The rest of the app only renders once someone is logged in.
 
+def auth_message(text):
+    """A validation message styled in the app's dark green instead of
+    Streamlit's default red st.error() styling."""
+    st.markdown(
+        f'<div class="auth-message">{html.escape(text)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_auth_page():
     st.markdown(
         """
@@ -1211,9 +1269,9 @@ def render_auth_page():
 
         if login_submit:
             if not login_email or not login_password:
-                st.error("Please enter both your email and password.")
+                auth_message("Please enter both your email and password.")
             elif not is_valid_email(login_email):
-                st.error("Please enter a valid email address.")
+                auth_message("Please enter a valid email address.")
             else:
                 user = verify_login(login_email, login_password)
                 if user:
@@ -1224,19 +1282,23 @@ def render_auth_page():
                     st.session_state.last_result = None
                     st.rerun()
                 else:
-                    st.error("Incorrect email or password.")
+                    auth_message("Incorrect email or password.")
 
     # ---- Sign Up ----
     with signup_tab:
         with st.form("signup_form"):
             signup_name = st.text_input(
-                "Your name", placeholder="Maya", key="signup_name"
+                "Your name", placeholder="First Name", key="signup_name"
             )
             signup_email = st.text_input(
                 "Email address", placeholder="you@gmail.com", key="signup_email"
             )
             signup_password = st.text_input(
                 "Password", type="password", key="signup_password"
+            )
+            st.markdown(
+                f'<p class="auth-password-hint">{PASSWORD_REQUIREMENTS_TEXT}</p>',
+                unsafe_allow_html=True,
             )
             signup_confirm = st.text_input(
                 "Confirm password", type="password", key="signup_confirm"
@@ -1245,15 +1307,15 @@ def render_auth_page():
 
         if signup_submit:
             if not signup_name or not signup_email or not signup_password:
-                st.error("Please fill in all fields.")
+                auth_message("Please fill in all fields.")
             elif not is_valid_email(signup_email):
-                st.error("Please enter a valid email address.")
-            elif len(signup_password) < 6:
-                st.error("Your password should be at least 6 characters.")
+                auth_message("Please enter a valid email address.")
+            elif not is_strong_password(signup_password):
+                auth_message(PASSWORD_REQUIREMENTS_TEXT + ".")
             elif signup_password != signup_confirm:
-                st.error("Those passwords don't match.")
+                auth_message("Those passwords don't match.")
             elif get_user(signup_email):
-                st.error(
+                auth_message(
                     "An account with that email already exists — try "
                     "logging in instead."
                 )
@@ -1546,4 +1608,3 @@ with st.sidebar:
         st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.rerun()
-
