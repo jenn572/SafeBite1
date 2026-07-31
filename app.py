@@ -1,3 +1,15 @@
+
+1 of 1,812
+(no subject)
+Inbox
+
+Sophya Liriano
+Attachments
+2:42 PM (18 minutes ago)
+to me
+
+ One attachment
+  •  Scanned by Gmail
 # ============================================================
 #  SafeBite - Sprint 2
 #  The user selects a product and sees its ingredients,
@@ -96,6 +108,7 @@ def init_db():
             streak_count INTEGER DEFAULT 0,
             last_login_date TEXT,
             allergies TEXT DEFAULT '[]',
+            dietary_restrictions TEXT DEFAULT '[]',
             profile_picture TEXT,
             created_at TEXT NOT NULL
         )
@@ -107,6 +120,7 @@ def init_db():
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_count INTEGER DEFAULT 0")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_date TEXT")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT '[]'")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dietary_restrictions TEXT DEFAULT '[]'")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT")
     conn.commit()
     cur.close()
@@ -258,6 +272,31 @@ def update_user_allergies(email, allergies_list):
     cur.execute(
         "UPDATE users SET allergies = %s WHERE email = %s",
         (json.dumps(allergies_list), email.strip().lower()),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_user_dietary_restrictions(user):
+    """Parse a user's stored dietary restrictions (JSON text) into a
+    Python list."""
+    try:
+        return (
+            json.loads(user["dietary_restrictions"])
+            if user.get("dietary_restrictions")
+            else []
+        )
+    except (TypeError, ValueError):
+        return []
+
+
+def update_user_dietary_restrictions(email, restrictions_list):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET dietary_restrictions = %s WHERE email = %s",
+        (json.dumps(restrictions_list), email.strip().lower()),
     )
     conn.commit()
     cur.close()
@@ -1093,6 +1132,12 @@ COMMON_ALLERGENS = [
 # several more specific items right below them in the list — when a
 # user selects the umbrella term, treat the specific items as covered
 # too when scanning a product.
+DIETARY_RESTRICTION_OPTIONS = [
+    "Vegan", "Vegetarian", "Pescatarian", "Halal", "Kosher",
+    "Gluten-Free", "Dairy-Free", "Low-Sodium", "Diabetic-Friendly",
+    "Low-Sugar", "Keto", "Paleo", "Low-Carb", "Non-GMO", "Organic Only",
+]
+
 ALLERGY_CATEGORY_EXPANSIONS = {
     "Tree Nuts": [
         "Almonds", "Walnuts", "Cashews", "Pecans", "Pistachios",
@@ -1893,6 +1938,27 @@ st.markdown(
             font-size: 0.85rem;
             font-weight: 600;
         }
+
+        /* Dietary restriction chips shown on the profile page —
+           same pill shape/theme as allergy chips, distinct accent
+           color so the two sections stay easy to tell apart. */
+        .dietary-chip {
+            display: inline-block;
+            background-color: #F3EEE2;
+            border: 1px solid #D9C9A0;
+            color: #6B5424;
+            border-radius: 999px;
+            padding: 0.25rem 0.75rem;
+            margin: 0.2rem 0.3rem 0.2rem 0;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        /* Hide Streamlit's built-in "Press Enter to submit form" hint
+           that overlaps the password reveal (eye) icon on login/signup */
+        div[data-testid="InputInstructions"] {
+            display: none;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1980,6 +2046,7 @@ def make_guest_user():
         "streak_count": 0,
         "last_login_date": None,
         "allergies": "[]",
+        "dietary_restrictions": "[]",
         "profile_picture": None,
         "created_at": datetime.now().strftime("%B %Y"),
         "is_guest": True,
@@ -2028,6 +2095,7 @@ def render_auth_page():
                     st.session_state.streak_count = user["streak_count"]
                     st.session_state.last_result = None
                     st.session_state.pop("allergy_select", None)
+                    st.session_state.pop("dietary_select", None)
                     st.session_state.pop("last_uploaded_pic_fingerprint", None)
                     st.rerun()
                 else:
@@ -2076,6 +2144,7 @@ def render_auth_page():
                 st.session_state.streak_count = user["streak_count"]
                 st.session_state.last_result = None
                 st.session_state.pop("allergy_select", None)
+                st.session_state.pop("dietary_select", None)
                 st.session_state.pop("last_uploaded_pic_fingerprint", None)
                 st.success("Account created! Redirecting...")
                 st.rerun()
@@ -2091,6 +2160,7 @@ def render_auth_page():
         st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
+        st.session_state.pop("dietary_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
     st.caption(
@@ -2676,6 +2746,52 @@ with tab_profile:
         st.caption("No allergies saved yet.")
 
     st.write("")
+
+    # ---- Dietary Restrictions ----
+    st.markdown('<p class="section-title">🥗 Dietary Restrictions</p>', unsafe_allow_html=True)
+    if is_guest_user(current_user):
+        st.caption(
+            "Pick any dietary preferences below — health concerns like "
+            "diabetes, religious restrictions, or lifestyle choices like "
+            "vegan and vegetarian. 🔒 As a guest, these won't be saved "
+            "once you leave — create a free account to keep them."
+        )
+    else:
+        st.caption(
+            "Pick any dietary preferences below — health concerns like "
+            "diabetes, religious restrictions, or lifestyle choices like "
+            "vegan and vegetarian. Add or remove these here any time."
+        )
+
+    current_dietary_restrictions = get_user_dietary_restrictions(current_user)
+
+    def _save_dietary_restrictions():
+        selected = st.session_state.get("dietary_select", [])
+        if not is_guest_user(current_user):
+            update_user_dietary_restrictions(current_user["email"], selected)
+        current_user["dietary_restrictions"] = json.dumps(selected)
+        st.session_state.auth_user = current_user
+
+    st.multiselect(
+        "Your dietary restrictions",
+        options=DIETARY_RESTRICTION_OPTIONS,
+        default=current_dietary_restrictions,
+        key="dietary_select",
+        on_change=_save_dietary_restrictions,
+        label_visibility="collapsed",
+        placeholder="Search and select dietary preferences...",
+    )
+
+    if current_dietary_restrictions:
+        dietary_chips_html = "".join(
+            f'<span class="dietary-chip">{html.escape(d)}</span>'
+            for d in current_dietary_restrictions
+        )
+        st.markdown(dietary_chips_html, unsafe_allow_html=True)
+    else:
+        st.caption("No dietary restrictions saved yet.")
+
+    st.write("")
     st.write("")
 
     if st.button("Log Out", key="profile_logout"):
@@ -2684,6 +2800,7 @@ with tab_profile:
         st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
+        st.session_state.pop("dietary_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
 
@@ -2719,6 +2836,6 @@ with st.sidebar:
         st.session_state.streak_count = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
+        st.session_state.pop("dietary_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
-
