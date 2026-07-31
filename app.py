@@ -393,6 +393,23 @@ PRODUCTS = {
     ],
 }
 
+# A food-specific emoji for each sample product, used in place of the
+# generic package emoji when showing scan results.
+PRODUCT_EMOJIS = {
+    "Breakfast Cereal": "🥣",
+    "Fast Food Bread Bun": "🍞",
+    "Peanut Snack Bar": "🥜",
+    "Instant Noodles": "🍜",
+    "Greek Yogurt": "🥛",
+    "Mixed Nuts Trail Mix": "🌰",
+    "Frozen Pizza": "🍕",
+    "Fruit Juice": "🧃",
+    "Ice Cream": "🍦",
+    "Canned Soup": "🥫",
+    "Flavored Chips": "🥔",
+    "Chocolate Chip Cookies": "🍪",
+}
+
 
 # ---- 2. INGREDIENT DICTIONARY --------------------------------
 # Every ingredient we know about, tagged as "harmful" or
@@ -807,6 +824,218 @@ INGREDIENT_DICTIONARY = {
         "explanation": "A versatile whole food that's a complete source "
                         "of protein.",
         "concern": "Provides protein, vitamins, and healthy fats.",
+    },
+
+    # ---------------- MPH FOOD ADDITIVES LIST ----------------
+    "Sodium Nitrate": {
+        "type": "harmful",
+        "explanation": "A preservative added to processed meats like bacon, hot dogs, and deli meats to stop bacterial growth and keep the color pink.",
+        "concern": "Linked to cancer risk in humans, especially with regular consumption of processed meats.",
+    },
+    "Sulfites": {
+        "type": "moderate",
+        "explanation": "A group of preservatives used to keep prepared and dried foods looking fresh and prevent browning.",
+        "concern": "Can cause breathing difficulties in people who are sensitive to sulfites, such as some asthma sufferers.",
+    },
+    "Potassium Bromate": {
+        "type": "harmful",
+        "explanation": "An additive used in some breads to help the dough rise higher and give it more volume.",
+        "concern": "Linked to cancer in humans; banned as a food additive in several countries.",
+    },
+    "Propyl Gallate": {
+        "type": "harmful",
+        "explanation": "A preservative added to fat-containing foods like meats, popcorn, and soup mixes to keep them from spoiling.",
+        "concern": "Shown to cause cancer in animal studies and is banned in some countries, though still considered safe by the FDA.",
+    },
+    "BHA": {
+        "type": "harmful",
+        "explanation": "A synthetic preservative, often paired with BHT, used to keep oils and fats in packaged food from going bad too quickly.",
+        "concern": "Linked to cancerous tumor growth in some animal studies.",
+    },
+    "Propylene Glycol": {
+        "type": "moderate",
+        "explanation": "A thickener related to antifreeze that's used to keep dairy products and salad dressings smooth and blended.",
+        "concern": "Considered 'generally safe' by the FDA, though some prefer to avoid it given its industrial origins.",
+    },
+    "Butane": {
+        "type": "harmful",
+        "explanation": "A gas sometimes used in processing chicken nuggets and other foods to help keep them tasting fresh.",
+        "concern": "A known carcinogen.",
+    },
+    "Disodium Guanylate": {
+        "type": "moderate",
+        "explanation": "A flavor enhancer often used alongside MSG in snack foods to make savory flavors taste richer.",
+        "concern": "Contains MSG, which can cause reactions in people sensitive to it.",
+    },
+    "Enriched Flour": {
+        "type": "moderate",
+        "explanation": "Refined wheat flour that's had synthetic vitamins and minerals added back in after processing strips out the bran and germ.",
+        "concern": "Lower in fiber and nutrients than whole grain flour, and digests into sugar more quickly.",
+    },
+    "Recombinant Bovine Growth Hormone (rBGH)": {
+        "type": "harmful",
+        "explanation": "A genetically-engineered version of a natural growth hormone given to cows to boost milk production.",
+        "concern": "Raises IGF-1 levels in milk, which some research links to increased cancer risk.",
+    },
+    "Refined Vegetable Oil": {
+        "type": "moderate",
+        "explanation": "Heavily processed oils like soybean, corn, safflower, canola, and peanut oil, common in packaged and fried foods.",
+        "concern": "High in omega-6 fats, which in excess are thought to contribute to heart disease and inflammation.",
+    },
+    "Sodium Benzoate": {
+        "type": "harmful",
+        "explanation": "A preservative used in salad dressings and carbonated beverages to stop mold and bacteria from growing.",
+        "concern": "Considered a carcinogen by some researchers and may cause DNA damage in combination with vitamin C.",
+    },
+    "Brominated Vegetable Oil": {
+        "type": "harmful",
+        "explanation": "An additive used to keep citrus flavor oils evenly mixed into soft drinks instead of separating.",
+        "concern": "Contains bromine, which can build up in the body and cause organ damage; not required to be listed on food labels in some regions.",
+    },
+    "Olestra": {
+        "type": "moderate",
+        "explanation": "A fat substitute used in some snack foods that passes through the body unabsorbed.",
+        "concern": "Can cause digestive discomfort and interferes with the absorption of some vitamins.",
+    },
+    "Polysorbate 60": {
+        "type": "harmful",
+        "explanation": "A thickener and emulsifier used to keep baked goods and other foods smooth and well-blended.",
+        "concern": "Linked to cancer in laboratory animal studies.",
+    },
+    "Carnauba Wax": {
+        "type": "harmful",
+        "explanation": "A wax from palm leaves used to give chewing gum and candy a glossy coating.",
+        "concern": "Some studies link high exposure to tumor growth.",
+    },
+    "Magnesium Sulphate": {
+        "type": "harmful",
+        "explanation": "A mineral compound sometimes used in tofu processing.",
+        "concern": "Linked to cancer in laboratory animal studies.",
+    },
+    "Chlorine Dioxide": {
+        "type": "harmful",
+        "explanation": "A bleaching agent used to whiten flour.",
+        "concern": "Linked to tumor growth and hyperactivity in children in some studies.",
+    },
+    "Paraben": {
+        "type": "harmful",
+        "explanation": "A preservative used to stop mold and yeast from growing in packaged foods.",
+        "concern": "Can disrupt hormones in the body and has been studied for a possible link to breast cancer.",
+    },
+    "Sodium Carboxymethyl Cellulose": {
+        "type": "moderate",
+        "explanation": "A thickener used in salad dressings and other processed foods to give them body.",
+        "concern": "May carry cancer risk in very high quantities, though typical food-use levels are considered low-risk.",
+    },
+    "Aluminum": {
+        "type": "harmful",
+        "explanation": "A metal sometimes used as a preservative in packaged and processed foods.",
+        "concern": "Linked to cancer risk with regular high exposure.",
+    },
+    "Saccharin": {
+        "type": "harmful",
+        "explanation": "An artificial sweetener hundreds of times sweeter than sugar, used in diet products.",
+        "concern": "Found to cause bladder cancer in rat studies.",
+    },
+    "Aspartame": {
+        "type": "harmful",
+        "explanation": "An artificial sweetener widely used in diet sodas and sugar-free products.",
+        "concern": "Considered an excitotoxin by some researchers and linked to dizziness, headaches, blurred vision, and stomach problems.",
+    },
+    "Acesulfame Potassium": {
+        "type": "harmful",
+        "explanation": "An artificial sweetener often blended with other sweeteners in diet sodas and ice cream.",
+        "concern": "Linked to lung and breast tumors in rat studies.",
+    },
+    "Sucralose": {
+        "type": "harmful",
+        "explanation": "An artificial sweetener (brand name Splenda) made by chemically altering sugar.",
+        "concern": "Linked to liver and kidney swelling and thymus gland shrinkage in animal studies.",
+    },
+    "Agave Nectar": {
+        "type": "moderate",
+        "explanation": "A sweetener derived from the agave cactus, often marketed as a 'natural' alternative to sugar.",
+        "concern": "Very high in fructose, which in excess is linked to insulin resistance, liver strain, and inflammation.",
+    },
+    "Bleached Starch": {
+        "type": "moderate",
+        "explanation": "A chemically treated starch used as a thickener in some dairy products.",
+        "concern": "Some researchers link it to asthma and skin irritation.",
+    },
+    "Tert-Butylhydroquinone (TBHQ)": {
+        "type": "harmful",
+        "explanation": "A synthetic preservative used to keep fish and other products from spoiling.",
+        "concern": "Linked to stomach tumors in animal studies at high doses.",
+    },
+    "Blue 1": {
+        "type": "harmful",
+        "explanation": "A synthetic blue dye used in bakery products, candy, and soft drinks.",
+        "concern": "Some studies link it to chromosome damage and cancer risk.",
+    },
+    "Blue 2": {
+        "type": "harmful",
+        "explanation": "A synthetic blue dye used in candy and pet food.",
+        "concern": "Some studies link it to brain tumor development.",
+    },
+    "Citrus Red 1": {
+        "type": "harmful",
+        "explanation": "A dye sprayed on orange peels to make the fruit look more ripe.",
+        "concern": "Some studies link it to chromosome damage and cancer risk.",
+    },
+    "Citrus Red 2": {
+        "type": "harmful",
+        "explanation": "A dye used to color orange peels.",
+        "concern": "Linked to cancer risk if the peel itself is eaten.",
+    },
+    "Green 3": {
+        "type": "harmful",
+        "explanation": "A synthetic green dye used in candy and beverages.",
+        "concern": "Some studies link it to bladder tumor development.",
+    },
+    "Yellow 5": {
+        "type": "harmful",
+        "explanation": "A synthetic yellow dye used in desserts, candy, and baked goods.",
+        "concern": "Some studies link it to kidney tumor development.",
+    },
+    "Red 2": {
+        "type": "harmful",
+        "explanation": "A synthetic red food coloring.",
+        "concern": "Some studies link it to asthma and cancer risk.",
+    },
+    "Red 3": {
+        "type": "harmful",
+        "explanation": "A synthetic red dye added to cherry pie filling, ice cream, and baked goods.",
+        "concern": "Linked to nerve damage and thyroid cancer in some studies.",
+    },
+    "Caramel Coloring": {
+        "type": "moderate",
+        "explanation": "A common coloring used in soft drinks, sauces, pastries, and breads.",
+        "concern": "When manufactured using ammonia, it can carry cancer risk in animal studies; companies aren't always required to disclose which method was used.",
+    },
+    "Brown HT": {
+        "type": "harmful",
+        "explanation": "A synthetic dye used in various packaged foods.",
+        "concern": "Some studies link it to hyperactivity in children, asthma, and cancer risk.",
+    },
+    "Orange B": {
+        "type": "moderate",
+        "explanation": "A food dye used in hot dog and sausage casings.",
+        "concern": "High doses have been linked to liver and bile duct strain.",
+    },
+    "Bixin": {
+        "type": "moderate",
+        "explanation": "A natural-origin food coloring used to give foods an orange-yellow hue.",
+        "concern": "Some studies link it to hyperactivity in children and asthma.",
+    },
+    "Norbixin": {
+        "type": "moderate",
+        "explanation": "A natural-origin food coloring related to Bixin.",
+        "concern": "Some studies link it to hyperactivity in children and asthma.",
+    },
+    "Annatto": {
+        "type": "moderate",
+        "explanation": "A natural food coloring derived from achiote tree seeds.",
+        "concern": "Some studies link it to hyperactivity in children and asthma.",
     },
 }
 
@@ -2180,7 +2409,7 @@ with tab_scan:
             )
 
         st.divider()
-        st.subheader(f"📦 {result_choice}")
+        st.subheader(f"{PRODUCT_EMOJIS.get(result_choice, '📦')} {result_choice}")
         st.write("#### Ingredients")
 
         for ingredient in ingredients:
@@ -2492,3 +2721,4 @@ with st.sidebar:
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
+
