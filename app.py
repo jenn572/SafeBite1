@@ -1,3 +1,8 @@
+# ============================================================
+#  SafeBite - Sprint 2
+#  The user selects a product and sees its ingredients,
+#  ingredient warnings, allergy alerts, and can browse a
+#  full Ingredient Dictionary of harmful & healthy ingredients.
 #
 #  HOW TO RUN:
 #     python3 -m pip install -r requirements.txt
@@ -15,10 +20,20 @@ import secrets
 from datetime import datetime
 
 import psycopg2
+import requests
 from psycopg2.extras import RealDictCursor
 from PIL import Image
 
 import streamlit as st
+
+# pyzbar needs a system library (libzbar0) that's installed via
+# packages.txt on Streamlit Cloud. If it's missing, don't crash the
+# whole app — just disable the barcode feature with a helpful message.
+try:
+    from pyzbar.pyzbar import decode as decode_barcode
+    BARCODE_SCANNING_AVAILABLE = True
+except Exception:
+    BARCODE_SCANNING_AVAILABLE = False
 
 
 # ---- 0. LOGO IMAGE (base64-encoded so it renders inline) -----
@@ -875,6 +890,127 @@ def find_matching_allergens(ingredients, user_allergies):
     return matched
 
 
+# ---- 2.6 BARCODE SCANNING (real products via Open Food Facts) ----
+
+def decode_barcode_image(uploaded_photo):
+    """Try to read a barcode out of a photo. Returns the barcode number
+    as a string, or None if no barcode could be found."""
+    image = Image.open(uploaded_photo).convert("RGB")
+    decoded_objects = decode_barcode(image)
+    if not decoded_objects:
+        return None
+    return decoded_objects[0].data.decode("utf-8")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def lookup_openfoodfacts(barcode):
+    """Look up a barcode on Open Food Facts (a free, open product
+    database). Returns a dict of product info, or None if not found."""
+    try:
+        response = requests.get(
+            f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json",
+            timeout=8,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError):
+        return None
+
+    if data.get("status") != 1:
+        return None
+
+    product = data.get("product", {})
+    name = (
+        product.get("product_name")
+        or product.get("product_name_en")
+        or "Unknown product"
+    )
+
+    # Prefer Open Food Facts' structured ingredient list; fall back to
+    # splitting the raw ingredients text if that's not available.
+    ingredients_list = [
+        ing["text"].strip().title()
+        for ing in product.get("ingredients", [])
+        if ing.get("text")
+    ]
+    ingredients_text = (
+        product.get("ingredients_text") or product.get("ingredients_text_en") or ""
+    )
+    if not ingredients_list and ingredients_text:
+        ingredients_list = [
+            part.strip().title() for part in ingredients_text.split(",") if part.strip()
+        ]
+
+    nutriments = product.get("nutriments", {})
+
+    return {
+        "barcode": barcode,
+        "name": name,
+        "brand": product.get("brands", ""),
+        "ingredients_list": ingredients_list,
+        "image_url": product.get("image_front_small_url") or product.get("image_url"),
+        "sugar_100g": nutriments.get("sugars_100g"),
+        "sodium_100g": nutriments.get("sodium_100g"),
+        "saturated_fat_100g": nutriments.get("saturated-fat_100g"),
+        "fiber_100g": nutriments.get("fiber_100g"),
+    }
+
+
+def compute_health_score(ingredients_list, nutrition):
+    """A 0-100 health score: starts at 100, loses points for harmful
+    ingredients and less healthy nutrition levels, gains a small bonus
+    for healthy ingredients and fiber. Nutrition thresholds are based
+    on the UK FSA's public high/medium/low "traffic light" bands."""
+    score = 100
+    matched_harmful = []
+    matched_healthy = []
+
+    for ingredient in ingredients_list:
+        ing_lower = ingredient.lower()
+        for dict_name, data in INGREDIENT_DICTIONARY.items():
+            dict_lower = dict_name.lower()
+            if dict_lower in ing_lower or ing_lower in dict_lower:
+                if data["type"] == "harmful":
+                    matched_harmful.append(dict_name)
+                else:
+                    matched_healthy.append(dict_name)
+                break
+
+    score -= len(matched_harmful) * 8
+    score += min(len(matched_healthy) * 2, 10)
+
+    sugar = nutrition.get("sugar_100g")
+    if sugar is not None:
+        if sugar > 22.5:
+            score -= 10
+        elif sugar > 5:
+            score -= 5
+
+    sodium = nutrition.get("sodium_100g")
+    if sodium is not None:
+        if sodium > 0.6:
+            score -= 10
+        elif sodium > 0.1:
+            score -= 5
+
+    sat_fat = nutrition.get("saturated_fat_100g")
+    if sat_fat is not None:
+        if sat_fat > 5:
+            score -= 10
+        elif sat_fat > 1.5:
+            score -= 5
+
+    fiber = nutrition.get("fiber_100g")
+    if fiber is not None:
+        if fiber > 6:
+            score += 5
+        elif fiber > 3:
+            score += 2
+
+    score = max(0, min(100, round(score)))
+    return score, matched_harmful, matched_healthy
+
+
 # ---- 3. PAGE SETUP ------------------------------------------
 
 st.set_page_config(
@@ -894,6 +1030,12 @@ if "streak_count" not in st.session_state:
 
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
+
+if "barcode_result" not in st.session_state:
+    st.session_state.barcode_result = None
+
+if "last_barcode_fingerprint" not in st.session_state:
+    st.session_state.last_barcode_fingerprint = None
 
 # Show the splash screen only once per browser session (the very first
 # script run) — not on every rerun triggered by clicks, tabs, etc.
@@ -1608,15 +1750,157 @@ with tab_scan:
         <div class="hero-card">
             <div class="hero-title">Scan food ingredients</div>
             <p class="hero-sub">
-                Choose a product below to detect harmful ingredients
-                and make smarter choices.
+                Scan a real product's barcode, or choose from our sample
+                products below, to detect harmful ingredients and make
+                smarter choices.
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<p class="section-title">🔎 Check a product</p>', unsafe_allow_html=True)
+    # ---- Real barcode scanning (Open Food Facts) ----
+    st.markdown('<p class="section-title">📷 Scan a Barcode</p>', unsafe_allow_html=True)
+
+    if not BARCODE_SCANNING_AVAILABLE:
+        st.info(
+            "Barcode scanning isn't available right now — this usually "
+            "means the `libzbar0` system package hasn't been installed. "
+            "Make sure a `packages.txt` file containing `libzbar0` is in "
+            "the same repo as app.py."
+        )
+    else:
+        st.caption(
+            "Take a clear, well-lit, straight-on photo of a product's "
+            "barcode."
+        )
+        barcode_photo = st.camera_input(
+            "Scan a barcode", key="barcode_camera", label_visibility="collapsed"
+        )
+
+        if barcode_photo is not None:
+            # camera_input keeps returning the same photo on every rerun
+            # until a new one is taken, so fingerprint it to avoid
+            # reprocessing (and re-querying the API) on every interaction.
+            photo_fingerprint = f"{barcode_photo.size}"
+            if st.session_state.last_barcode_fingerprint != photo_fingerprint:
+                st.session_state.last_barcode_fingerprint = photo_fingerprint
+                with st.spinner("Reading barcode..."):
+                    barcode_value = decode_barcode_image(barcode_photo)
+
+                if not barcode_value:
+                    st.session_state.barcode_result = None
+                    st.warning(
+                        "Couldn't read a barcode in that photo. Try "
+                        "getting closer, holding steady, and making sure "
+                        "it's in focus and well lit."
+                    )
+                else:
+                    with st.spinner("Looking up product..."):
+                        product_data = lookup_openfoodfacts(barcode_value)
+
+                    if not product_data:
+                        st.session_state.barcode_result = None
+                        st.warning(
+                            f"Barcode {barcode_value} isn't in the Open "
+                            "Food Facts database yet."
+                        )
+                    else:
+                        st.session_state.barcode_result = product_data
+                        st.session_state.scan_count += 1
+                        update_scan_count(
+                            current_user["email"], st.session_state.scan_count
+                        )
+
+        if st.session_state.barcode_result:
+            result = st.session_state.barcode_result
+
+            # Personal allergy warning — shown first, above everything else
+            user_allergies = get_user_allergies(current_user)
+            personal_matches = find_matching_allergens(
+                result["ingredients_list"], user_allergies
+            )
+            if personal_matches:
+                matches_text = ", ".join(html.escape(a) for a in personal_matches)
+                st.markdown(
+                    f"""
+                    <div class="allergy-warning-banner">
+                        ⚠️ allergy warning<br>this product contains: {matches_text}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            st.divider()
+
+            if result["image_url"]:
+                img_col, info_col = st.columns([1, 2])
+                with img_col:
+                    st.image(result["image_url"], width=100)
+                with info_col:
+                    st.subheader(result["name"])
+                    if result["brand"]:
+                        st.caption(result["brand"])
+            else:
+                st.subheader(result["name"])
+                if result["brand"]:
+                    st.caption(result["brand"])
+
+            score, matched_harmful, matched_healthy = compute_health_score(
+                result["ingredients_list"],
+                {
+                    "sugar_100g": result["sugar_100g"],
+                    "sodium_100g": result["sodium_100g"],
+                    "saturated_fat_100g": result["saturated_fat_100g"],
+                    "fiber_100g": result["fiber_100g"],
+                },
+            )
+            if score >= 70:
+                score_color = "#3F6B24"
+            elif score >= 40:
+                score_color = "#B8860B"
+            else:
+                score_color = "#A23B2E"
+
+            st.markdown(
+                f"""
+                <div class="stat-card" style="border-color:{score_color};">
+                    <div class="stat-number" style="color:{score_color};">{score}/100</div>
+                    <div class="stat-label">Health Score</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.write("")
+            if result["ingredients_list"]:
+                st.write("#### Ingredients")
+                for ingredient in result["ingredients_list"]:
+                    st.markdown(
+                        f'<div class="ingredient-card">🌱 {html.escape(ingredient)}</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.caption("No ingredient list was available for this product.")
+
+            st.write("")
+
+            if matched_harmful:
+                st.warning("⚠️ Ingredients to watch out for")
+                for name in matched_harmful:
+                    st.write(f"**{name}:** {WATCH_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+            else:
+                st.success("✅ No ingredients from our watch list were found.")
+
+            if matched_healthy:
+                st.info("🌿 Healthy ingredients spotted")
+                for name in matched_healthy:
+                    st.write(f"**{name}:** {HEALTHY_HIGHLIGHTS.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+
+    st.divider()
+
+    # ---- Sample product dropdown ----
+    st.markdown('<p class="section-title">🔎 Or Browse Our Sample Products</p>', unsafe_allow_html=True)
 
     choice = st.selectbox(
         "Choose a product",
