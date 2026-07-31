@@ -416,28 +416,28 @@ INGREDIENT_DICTIONARY = {
                     "banned as a food additive in the EU and UK.",
     },
     "Disodium Inosinate": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A flavor enhancer often paired with MSG to make "
                         "savory foods taste richer.",
         "concern": "Usually made from meat or fish, so it isn't vegetarian-"
                     "friendly, and can cause reactions in sensitive people.",
     },
     "Palm Oil": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A cheap vegetable oil used to add texture and "
                         "shelf life to processed snacks.",
         "concern": "High in saturated fat, which can raise cholesterol "
                     "if eaten often.",
     },
     "Sugar": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A sweetener added to make food taste better, "
                         "often in larger amounts than people realize.",
         "concern": "Eating too much added sugar is linked to weight gain, "
                     "energy crashes, and long-term health risks.",
     },
     "Salt": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "Used to preserve food and boost flavor.",
         "concern": "Too much sodium over time can raise blood pressure.",
     },
@@ -470,7 +470,7 @@ INGREDIENT_DICTIONARY = {
                     "banned in many countries.",
     },
     "Monosodium Glutamate (MSG)": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A flavor enhancer that makes savory foods taste "
                         "more intense.",
         "concern": "Considered safe in moderation by most health bodies, "
@@ -478,7 +478,7 @@ INGREDIENT_DICTIONARY = {
                     "people.",
     },
     "Excess Sodium": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "Salt added beyond what's needed, often used to "
                         "preserve food or boost flavor.",
         "concern": "Consuming too much sodium regularly is linked to "
@@ -493,7 +493,7 @@ INGREDIENT_DICTIONARY = {
                     "people.",
     },
     "Refined White Flour": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "Wheat flour stripped of its bran and germ, "
                         "leaving mostly starch behind.",
         "concern": "Lower in fiber and nutrients than whole grain flour, "
@@ -515,21 +515,21 @@ INGREDIENT_DICTIONARY = {
                     "bacteria and continued sugar cravings.",
     },
     "Added Sugar": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "Sugar added during processing rather than "
                         "occurring naturally in the food.",
         "concern": "Regularly eating extra added sugar is tied to weight "
                     "gain and other long-term health risks.",
     },
     "Corn Syrup": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A sweet syrup made from corn starch, used to "
                         "sweeten and add texture to processed foods.",
         "concern": "Adds extra sugar and calories with little "
                     "nutritional value.",
     },
     "Carrageenan": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A thickener extracted from red seaweed, used to "
                         "give creamy foods a smooth texture.",
         "concern": "Considered safe by most regulators, but some people "
@@ -537,14 +537,14 @@ INGREDIENT_DICTIONARY = {
                     "irritation.",
     },
     "Mono- and Diglycerides": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "Emulsifiers that help keep water and fat blended "
                         "together in foods like ice cream and baked goods.",
         "concern": "Generally recognized as safe, though small amounts "
                     "can be derived from trans fats.",
     },
     "Modified Food Starch": {
-        "type": "harmful",
+        "type": "moderate",
         "explanation": "A starch that's been chemically or physically "
                         "altered to thicken or stabilize processed foods.",
         "concern": "Highly processed and offers little nutritional "
@@ -811,10 +811,19 @@ INGREDIENT_DICTIONARY = {
 }
 
 # Kept separate for the ingredient-check logic on the Scan page.
+# Three tiers: clearly harmful (bigger score hit), moderate/"semi-harmful"
+# (a smaller hit — common ingredients that are only a concern in excess,
+# like sugar, salt, or palm oil), and healthy.
 WATCH_LIST = {
     name: data["concern"]
     for name, data in INGREDIENT_DICTIONARY.items()
     if data["type"] == "harmful"
+}
+
+MODERATE_LIST = {
+    name: data["concern"]
+    for name, data in INGREDIENT_DICTIONARY.items()
+    if data["type"] == "moderate"
 }
 
 HEALTHY_HIGHLIGHTS = {
@@ -909,6 +918,38 @@ OPENFOODFACTS_HEADERS = {
 }
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def translate_to_english(text, source_lang):
+    """Translate ingredient text to English using the free MyMemory API.
+
+    Many products on Open Food Facts only have their ingredient list in
+    the language it was originally submitted in (French, German, etc.),
+    with no English version available. Without translating, ingredients
+    show up in that original language AND fail to match anything in our
+    English ingredient dictionary — so harmful/moderate/healthy
+    ingredients silently go undetected.
+
+    Returns (translated_text, was_translated). On any failure (network
+    issue, rate limit, etc.) it falls back to the original text rather
+    than breaking the scan."""
+    if not text or not source_lang or source_lang == "en":
+        return text, False
+    try:
+        response = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": text[:490], "langpair": f"{source_lang}|en"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        data = response.json()
+        translated = data.get("responseData", {}).get("translatedText")
+        if translated and translated.strip():
+            return translated, True
+    except (requests.RequestException, ValueError):
+        pass
+    return text, False
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_openfoodfacts_product(barcode):
     """A single raw lookup against Open Food Facts for one exact barcode.
@@ -978,20 +1019,41 @@ def lookup_openfoodfacts(barcode):
         or "Unknown product"
     )
 
-    # Prefer Open Food Facts' structured ingredient list; fall back to
-    # splitting the raw ingredients text if that's not available.
+    # Open Food Facts often only has an ingredients list in whatever
+    # language the product was originally submitted in. Prefer an
+    # English version if one exists; otherwise translate the original
+    # text to English so ingredients both display in English and can
+    # be matched against our (English) ingredient dictionary.
+    source_lang = product.get("lang")
+    ingredients_text_en = product.get("ingredients_text_en")
+    ingredients_text_native = product.get("ingredients_text") or ""
+
+    translation_note = None
+    if ingredients_text_en:
+        ingredients_text_final = ingredients_text_en
+    elif ingredients_text_native and source_lang and source_lang != "en":
+        translated_text, was_translated = translate_to_english(
+            ingredients_text_native, source_lang
+        )
+        if was_translated:
+            ingredients_text_final = translated_text
+            translation_note = (
+                f"Ingredients were translated from \"{source_lang}\" to English."
+            )
+        else:
+            ingredients_text_final = ingredients_text_native
+            translation_note = (
+                "Couldn't translate these ingredients — showing the "
+                "original language."
+            )
+    else:
+        ingredients_text_final = ingredients_text_native
+
     ingredients_list = [
-        ing["text"].strip().title()
-        for ing in product.get("ingredients", [])
-        if ing.get("text")
+        part.strip().title()
+        for part in ingredients_text_final.split(",")
+        if part.strip()
     ]
-    ingredients_text = (
-        product.get("ingredients_text") or product.get("ingredients_text_en") or ""
-    )
-    if not ingredients_list and ingredients_text:
-        ingredients_list = [
-            part.strip().title() for part in ingredients_text.split(",") if part.strip()
-        ]
 
     nutriments = product.get("nutriments", {})
 
@@ -1000,6 +1062,7 @@ def lookup_openfoodfacts(barcode):
         "name": name,
         "brand": product.get("brands", ""),
         "ingredients_list": ingredients_list,
+        "translation_note": translation_note,
         "image_url": product.get("image_front_small_url") or product.get("image_url"),
         "sugar_100g": nutriments.get("sugars_100g"),
         "sodium_100g": nutriments.get("sodium_100g"),
@@ -1011,11 +1074,20 @@ def lookup_openfoodfacts(barcode):
 
 def compute_health_score(ingredients_list, nutrition):
     """A 0-100 health score: starts at 100, loses points for harmful
-    ingredients and less healthy nutrition levels, gains a small bonus
-    for healthy ingredients and fiber. Nutrition thresholds are based
-    on the UK FSA's public high/medium/low "traffic light" bands."""
+    and moderate/"semi-harmful" ingredients and less healthy nutrition
+    levels, gains a small bonus for healthy ingredients and fiber.
+    Nutrition thresholds are based on the UK FSA's public high/medium/low
+    "traffic light" bands.
+
+    Harmful ingredients (additives with clearer red flags, like
+    artificial dyes or trans fat) cost more points than moderate ones
+    (everyday ingredients like sugar or salt that are only a concern
+    in excess) — so a product like Nutella, which mostly contains
+    moderate ingredients, doesn't score as harshly as one full of
+    artificial additives."""
     score = 100
     matched_harmful = []
+    matched_moderate = []
     matched_healthy = []
 
     for ingredient in ingredients_list:
@@ -1025,11 +1097,14 @@ def compute_health_score(ingredients_list, nutrition):
             if dict_lower in ing_lower or ing_lower in dict_lower:
                 if data["type"] == "harmful":
                     matched_harmful.append(dict_name)
+                elif data["type"] == "moderate":
+                    matched_moderate.append(dict_name)
                 else:
                     matched_healthy.append(dict_name)
                 break
 
     score -= len(matched_harmful) * 8
+    score -= len(matched_moderate) * 3
     score += min(len(matched_healthy) * 2, 10)
 
     sugar = nutrition.get("sugar_100g")
@@ -1061,7 +1136,7 @@ def compute_health_score(ingredients_list, nutrition):
             score += 2
 
     score = max(0, min(100, round(score)))
-    return score, matched_harmful, matched_healthy
+    return score, matched_harmful, matched_moderate, matched_healthy
 
 
 # ---- 3. PAGE SETUP ------------------------------------------
@@ -1243,6 +1318,10 @@ st.markdown(
             background-color: #FDECEA;
             border-color: #F3B9B4;
         }
+        .dict-card.moderate {
+            background-color: #FDF3E2;
+            border-color: #F0D8A0;
+        }
         .dict-card.healthy {
             background-color: #EAF3E2;
             border-color: #BBD9A0;
@@ -1253,6 +1332,7 @@ st.markdown(
             margin-bottom: 0.15rem;
         }
         .dict-name.harmful { color: #A23B2E; }
+        .dict-name.moderate { color: #B8860B; }
         .dict-name.healthy { color: #3F6B24; }
         .dict-badge {
             display: inline-block;
@@ -1264,10 +1344,12 @@ st.markdown(
             vertical-align: middle;
         }
         .dict-badge.harmful { background-color: #E8776B; color: white; }
+        .dict-badge.moderate { background-color: #E0A83A; color: white; }
         .dict-badge.healthy { background-color: #78A855; color: white; }
         .dict-explanation { color: #4A4A4A; font-size: 0.88rem; margin: 0.3rem 0; }
         .dict-concern { font-size: 0.85rem; font-style: italic; }
         .dict-concern.harmful { color: #A23B2E; }
+        .dict-concern.moderate { color: #B8860B; }
         .dict-concern.healthy { color: #3F6B24; }
 
         /* Sidebar background */
@@ -1854,13 +1936,27 @@ with tab_scan:
             "the same repo as app.py."
         )
     else:
+        if "show_camera" not in st.session_state:
+            st.session_state.show_camera = False
+
         st.caption(
             "Take a clear, well-lit, straight-on photo of a product's "
             "barcode."
         )
-        barcode_photo = st.camera_input(
-            "Scan a barcode", key="barcode_camera", label_visibility="collapsed"
-        )
+
+        if not st.session_state.show_camera:
+            if st.button("📷 Open Camera to Scan", key="open_camera_btn", type="primary"):
+                st.session_state.show_camera = True
+                st.rerun()
+
+        barcode_photo = None
+        if st.session_state.show_camera:
+            barcode_photo = st.camera_input(
+                "Scan a barcode", key="barcode_camera", label_visibility="collapsed"
+            )
+            if st.button("Close Camera", key="close_camera_btn"):
+                st.session_state.show_camera = False
+                st.rerun()
 
         if barcode_photo is not None:
             # camera_input keeps returning the same photo on every rerun
@@ -1935,7 +2031,7 @@ with tab_scan:
                 if result["brand"]:
                     st.caption(result["brand"])
 
-            score, matched_harmful, matched_healthy = compute_health_score(
+            score, matched_harmful, matched_moderate, matched_healthy = compute_health_score(
                 result["ingredients_list"],
                 {
                     "sugar_100g": result["sugar_100g"],
@@ -1964,6 +2060,8 @@ with tab_scan:
             st.write("")
             if result["ingredients_list"]:
                 st.write("#### Ingredients")
+                if result.get("translation_note"):
+                    st.caption(f"🌐 {result['translation_note']}")
                 for ingredient in result["ingredients_list"]:
                     st.markdown(
                         f'<div class="ingredient-card">🌱 {html.escape(ingredient)}</div>',
@@ -1975,11 +2073,22 @@ with tab_scan:
             st.write("")
 
             if matched_harmful:
-                st.warning("⚠️ Ingredients to watch out for")
+                st.warning("⚠️ Harmful ingredients found")
                 for name in matched_harmful:
                     st.write(f"**{name}:** {WATCH_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
             else:
-                st.success("✅ No ingredients from our watch list were found.")
+                st.success("✅ No harmful ingredients from our list were found.")
+
+            if matched_moderate:
+                st.markdown(
+                    '<div class="instruction-card" style="background-color:#FDF3E2;'
+                    'border-color:#F0D8A0;color:#8A6300;font-weight:600;">'
+                    '🟡 Semi-harmful ingredients found — fine in moderation'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+                for name in matched_moderate:
+                    st.write(f"**{name}:** {MODERATE_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
 
             if matched_healthy:
                 st.info("🌿 Healthy ingredients spotted")
@@ -2040,11 +2149,24 @@ with tab_scan:
         flagged = [i for i in ingredients if i in WATCH_LIST]
 
         if flagged:
-            st.warning("⚠️ Ingredients to watch out for")
+            st.warning("⚠️ Harmful ingredients found")
             for ingredient in flagged:
                 st.write(f"**{ingredient}:** {WATCH_LIST[ingredient]}")
         else:
-            st.success("✅ No ingredients from our watch list were found.")
+            st.success("✅ No harmful ingredients from our list were found.")
+
+        # ---- Semi-harmful / moderate check ----
+        moderate_found = [i for i in ingredients if i in MODERATE_LIST]
+        if moderate_found:
+            st.markdown(
+                '<div class="instruction-card" style="background-color:#FDF3E2;'
+                'border-color:#F0D8A0;color:#8A6300;font-weight:600;">'
+                '🟡 Semi-harmful ingredients found — fine in moderation'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            for ingredient in moderate_found:
+                st.write(f"**{ingredient}:** {MODERATE_LIST[ingredient]}")
 
         # ---- Healthy highlights ----
         healthy_found = [i for i in ingredients if i in HEALTHY_HIGHLIGHTS]
@@ -2087,7 +2209,7 @@ with tab_dictionary:
 
     filter_choice = st.radio(
         "Filter",
-        ["All", "⚠️ Harmful", "🌿 Healthy"],
+        ["All", "⚠️ Harmful", "🟡 Semi-Harmful", "🌿 Healthy"],
         horizontal=True,
         label_visibility="collapsed",
     )
@@ -2102,6 +2224,8 @@ with tab_dictionary:
 
     if filter_choice == "⚠️ Harmful":
         entries = [(n, d) for n, d in entries if d["type"] == "harmful"]
+    elif filter_choice == "🟡 Semi-Harmful":
+        entries = [(n, d) for n, d in entries if d["type"] == "moderate"]
     elif filter_choice == "🌿 Healthy":
         entries = [(n, d) for n, d in entries if d["type"] == "healthy"]
 
@@ -2112,9 +2236,12 @@ with tab_dictionary:
 
     for name, data in entries:
         kind = data["type"]
-        badge_text = "HARMFUL" if kind == "harmful" else "HEALTHY"
-        icon = "⚠️" if kind == "harmful" else "🌿"
-        concern_label = "Health concern" if kind == "harmful" else "Health benefit"
+        if kind == "harmful":
+            badge_text, icon, concern_label = "HARMFUL", "⚠️", "Health concern"
+        elif kind == "moderate":
+            badge_text, icon, concern_label = "SEMI-HARMFUL", "🟡", "Worth watching"
+        else:
+            badge_text, icon, concern_label = "HEALTHY", "🌿", "Health benefit"
 
         st.markdown(
             f"""
@@ -2298,3 +2425,4 @@ with st.sidebar:
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
+
