@@ -1798,6 +1798,28 @@ with tab_scan:
     # ---- Real barcode scanning (Open Food Facts) ----
     st.markdown('<p class="section-title">📷 Scan a Barcode</p>', unsafe_allow_html=True)
 
+    def _run_barcode_lookup(barcode_value):
+        """Look up a barcode and store the result (or show why it
+        failed). Shared by both the camera photo and manual entry."""
+        with st.spinner("Looking up product..."):
+            product_data = lookup_openfoodfacts(barcode_value)
+
+        if not product_data:
+            st.session_state.barcode_result = None
+            st.warning(
+                f"Barcode **{barcode_value}** isn't in the Open Food "
+                "Facts database yet."
+            )
+            st.caption(
+                "You can check "
+                f"[openfoodfacts.org](https://world.openfoodfacts.org/product/{barcode_value}) "
+                "directly to confirm whether this product is listed."
+            )
+        else:
+            st.session_state.barcode_result = product_data
+            st.session_state.scan_count += 1
+            update_scan_count(current_user["email"], st.session_state.scan_count)
+
     if not BARCODE_SCANNING_AVAILABLE:
         st.info(
             "Barcode scanning isn't available right now — this usually "
@@ -1829,33 +1851,29 @@ with tab_scan:
                     st.warning(
                         "Couldn't read a barcode in that photo. Try "
                         "getting closer, holding steady, and making sure "
-                        "it's in focus and well lit."
+                        "it's in focus and well lit — or type the number "
+                        "in manually below."
                     )
                 else:
-                    with st.spinner("Looking up product..."):
-                        product_data = lookup_openfoodfacts(barcode_value)
+                    _run_barcode_lookup(barcode_value)
 
-                    if not product_data:
-                        st.session_state.barcode_result = None
-                        st.warning(
-                            f"Barcode **{barcode_value}** isn't in the Open "
-                            "Food Facts database yet. Double check the "
-                            "number on the box matches what was read here — "
-                            "if it doesn't, the photo was likely misread; "
-                            "try again with better lighting and a "
-                            "straight-on angle."
-                        )
-                        st.caption(
-                            "You can also check "
-                            f"[openfoodfacts.org](https://world.openfoodfacts.org/product/{barcode_value}) "
-                            "directly to confirm whether this product is listed."
-                        )
-                    else:
-                        st.session_state.barcode_result = product_data
-                        st.session_state.scan_count += 1
-                        update_scan_count(
-                            current_user["email"], st.session_state.scan_count
-                        )
+        # ---- Manual entry fallback ----
+        # Useful when the camera can't get a clean read (glare, a small
+        # or curved barcode, low light), and also handy for testing —
+        # e.g. try 3017620422003 (Nutella), a barcode reliably in the
+        # Open Food Facts database with full ingredient data.
+        with st.expander("Can't scan it? Type the barcode number instead"):
+            manual_barcode = st.text_input(
+                "Barcode number",
+                placeholder="e.g. 3017620422003",
+                key="manual_barcode_input",
+            )
+            if st.button("Look Up", key="manual_barcode_submit"):
+                manual_barcode_clean = manual_barcode.strip()
+                if not manual_barcode_clean.isdigit():
+                    st.warning("Enter a barcode using numbers only.")
+                else:
+                    _run_barcode_lookup(manual_barcode_clean)
 
         if st.session_state.barcode_result:
             result = st.session_state.barcode_result
