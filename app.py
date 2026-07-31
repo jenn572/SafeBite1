@@ -902,23 +902,35 @@ def decode_barcode_image(uploaded_photo):
     return decoded_objects[0].data.decode("utf-8")
 
 
+OPENFOODFACTS_HEADERS = {
+    # Open Food Facts asks API clients to identify themselves — requests
+    # without a real User-Agent can be throttled or rejected.
+    "User-Agent": "SafeBite-StreamlitApp/1.0 (educational project)"
+}
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_openfoodfacts_product(barcode):
     """A single raw lookup against Open Food Facts for one exact barcode.
-    Returns the raw product dict, or None if not found / request failed."""
+    Returns (product_dict, None) on success, (None, None) if the barcode
+    genuinely isn't in the database, or (None, error_message) if the
+    request itself failed (network, timeout, bad response, etc.)."""
     try:
         response = requests.get(
             f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json",
-            timeout=8,
+            headers=OPENFOODFACTS_HEADERS,
+            timeout=10,
         )
         response.raise_for_status()
         data = response.json()
-    except (requests.RequestException, ValueError):
-        return None
+    except requests.RequestException as exc:
+        return None, f"Request failed: {exc}"
+    except ValueError as exc:
+        return None, f"Couldn't parse the response: {exc}"
 
     if data.get("status") != 1:
-        return None
-    return data.get("product", {})
+        return None, None
+    return data.get("product", {}), None
 
 
 def _barcode_variants(barcode):
@@ -942,19 +954,23 @@ def _barcode_variants(barcode):
 
 
 def lookup_openfoodfacts(barcode):
-    """Look up a barcode on Open Food Facts (a free, open product
-    database), trying a couple of common barcode-format variants before
-    giving up. Returns a dict of product info, or None if not found."""
+    """Look up a barcode on Open Food Facts, trying a couple of common
+    barcode-format variants before giving up. Returns (result_dict,
+    None) on success, (None, None) if genuinely not found, or (None,
+    error_message) if the request itself failed."""
     product = None
     matched_barcode = barcode
+    last_error = None
     for candidate in _barcode_variants(barcode):
-        product = _fetch_openfoodfacts_product(candidate)
+        product, error = _fetch_openfoodfacts_product(candidate)
+        if error:
+            last_error = error
         if product:
             matched_barcode = candidate
             break
 
     if not product:
-        return None
+        return None, last_error
 
     name = (
         product.get("product_name")
@@ -979,7 +995,7 @@ def lookup_openfoodfacts(barcode):
 
     nutriments = product.get("nutriments", {})
 
-    return {
+    result = {
         "barcode": matched_barcode,
         "name": name,
         "brand": product.get("brands", ""),
@@ -990,6 +1006,7 @@ def lookup_openfoodfacts(barcode):
         "saturated_fat_100g": nutriments.get("saturated-fat_100g"),
         "fiber_100g": nutriments.get("fiber_100g"),
     }
+    return result, None
 
 
 def compute_health_score(ingredients_list, nutrition):
@@ -1802,9 +1819,18 @@ with tab_scan:
         """Look up a barcode and store the result (or show why it
         failed). Shared by both the camera photo and manual entry."""
         with st.spinner("Looking up product..."):
-            product_data = lookup_openfoodfacts(barcode_value)
+            product_data, lookup_error = lookup_openfoodfacts(barcode_value)
 
-        if not product_data:
+        if lookup_error:
+            st.session_state.barcode_result = None
+            st.error(
+                "Couldn't reach Open Food Facts right now — this is a "
+                "connection problem, not a missing product. Try again "
+                "in a moment."
+            )
+            with st.expander("Technical details"):
+                st.code(lookup_error)
+        elif not product_data:
             st.session_state.barcode_result = None
             st.warning(
                 f"Barcode **{barcode_value}** isn't in the Open Food "
