@@ -1736,6 +1736,31 @@ def auth_message(text):
     )
 
 
+def make_guest_user():
+    """A throwaway, in-memory-only user record for people who don't want
+    to create an account. It has the same shape as a real DB user row so
+    the rest of the app can treat it identically — it just never touches
+    the database, has no email, and is flagged with is_guest=True so a
+    few features (profile picture, saved allergies) know to be a no-op."""
+    return {
+        "email": None,
+        "name": "Guest",
+        "salt": None,
+        "password_hash": None,
+        "scan_count": STARTING_SCAN_COUNT,
+        "streak_count": 0,
+        "last_login_date": None,
+        "allergies": "[]",
+        "profile_picture": None,
+        "created_at": datetime.now().strftime("%B %Y"),
+        "is_guest": True,
+    }
+
+
+def is_guest_user(user):
+    return bool(user and user.get("is_guest"))
+
+
 def render_auth_page():
     st.markdown(
         """
@@ -1825,6 +1850,25 @@ def render_auth_page():
                 st.session_state.pop("last_uploaded_pic_fingerprint", None)
                 st.success("Account created! Redirecting...")
                 st.rerun()
+
+    st.write("")
+    st.markdown(
+        '<p style="text-align:center; opacity:0.7;">or</p>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Continue as Guest", key="guest_login", use_container_width=True):
+        st.session_state.auth_user = make_guest_user()
+        st.session_state.scan_count = STARTING_SCAN_COUNT
+        st.session_state.streak_count = 0
+        st.session_state.last_result = None
+        st.session_state.pop("allergy_select", None)
+        st.session_state.pop("last_uploaded_pic_fingerprint", None)
+        st.rerun()
+    st.caption(
+        "As a guest you can use every feature, but you can't set a "
+        "profile picture, and your allergies won't be saved once you "
+        "leave."
+    )
 
 
 if st.session_state.auth_user is None:
@@ -1926,7 +1970,8 @@ with tab_scan:
         else:
             st.session_state.barcode_result = product_data
             st.session_state.scan_count += 1
-            update_scan_count(current_user["email"], st.session_state.scan_count)
+            if not is_guest_user(current_user):
+                update_scan_count(current_user["email"], st.session_state.scan_count)
 
     if not BARCODE_SCANNING_AVAILABLE:
         st.info(
@@ -2112,7 +2157,8 @@ with tab_scan:
     if check_button:
         st.session_state.scan_count += 1
         st.session_state.last_result = choice
-        update_scan_count(current_user["email"], st.session_state.scan_count)
+        if not is_guest_user(current_user):
+            update_scan_count(current_user["email"], st.session_state.scan_count)
 
     if st.session_state.last_result:
         result_choice = st.session_state.last_result
@@ -2285,30 +2331,40 @@ with tab_profile:
             unsafe_allow_html=True,
         )
 
-    uploaded_pic = st.file_uploader(
-        "Change profile picture",
-        type=["png", "jpg", "jpeg"],
-        key="profile_pic_uploader",
-    )
-    if uploaded_pic is not None:
-        # file_uploader keeps returning the same file on every rerun until
-        # a new one is chosen, so fingerprint it to avoid reprocessing
-        # (and re-triggering st.rerun()) on every single interaction.
-        pic_fingerprint = f"{uploaded_pic.name}-{uploaded_pic.size}"
-        if st.session_state.get("last_uploaded_pic_fingerprint") != pic_fingerprint:
-            picture_b64 = process_profile_picture(uploaded_pic)
-            update_profile_picture(current_user["email"], picture_b64)
-            current_user["profile_picture"] = picture_b64
-            st.session_state.auth_user = current_user
-            st.session_state.last_uploaded_pic_fingerprint = pic_fingerprint
-            st.success("Profile picture updated!")
-            st.rerun()
+    if is_guest_user(current_user):
+        st.caption(
+            "🔒 Create a free account to set a profile picture — guest "
+            "sessions can't save one."
+        )
+    else:
+        uploaded_pic = st.file_uploader(
+            "Change profile picture",
+            type=["png", "jpg", "jpeg"],
+            key="profile_pic_uploader",
+        )
+        if uploaded_pic is not None:
+            # file_uploader keeps returning the same file on every rerun until
+            # a new one is chosen, so fingerprint it to avoid reprocessing
+            # (and re-triggering st.rerun()) on every single interaction.
+            pic_fingerprint = f"{uploaded_pic.name}-{uploaded_pic.size}"
+            if st.session_state.get("last_uploaded_pic_fingerprint") != pic_fingerprint:
+                picture_b64 = process_profile_picture(uploaded_pic)
+                update_profile_picture(current_user["email"], picture_b64)
+                current_user["profile_picture"] = picture_b64
+                st.session_state.auth_user = current_user
+                st.session_state.last_uploaded_pic_fingerprint = pic_fingerprint
+                st.success("Profile picture updated!")
+                st.rerun()
 
+    profile_subtitle = (
+        "Guest session — not saved" if is_guest_user(current_user)
+        else current_user["email"]
+    )
     st.markdown(
         f"""
         <div class="greeting-card">
             <div class="greeting-title">{html.escape(display_name)}</div>
-            <div class="greeting-sub">{html.escape(current_user['email'])}</div>
+            <div class="greeting-sub">{html.escape(profile_subtitle)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2350,16 +2406,24 @@ with tab_profile:
 
     # ---- Allergies ----
     st.markdown('<p class="section-title">🚫 Your Allergies</p>', unsafe_allow_html=True)
-    st.caption(
-        "Pick any allergies below — we'll warn you if a scanned product "
-        "contains them. Add or remove allergies here any time."
-    )
+    if is_guest_user(current_user):
+        st.caption(
+            "Pick any allergies below — we'll warn you if a scanned "
+            "product contains them. 🔒 As a guest, these won't be saved "
+            "once you leave — create a free account to keep them."
+        )
+    else:
+        st.caption(
+            "Pick any allergies below — we'll warn you if a scanned product "
+            "contains them. Add or remove allergies here any time."
+        )
 
     current_allergies = get_user_allergies(current_user)
 
     def _save_allergies():
         selected = st.session_state.get("allergy_select", [])
-        update_user_allergies(current_user["email"], selected)
+        if not is_guest_user(current_user):
+            update_user_allergies(current_user["email"], selected)
         current_user["allergies"] = json.dumps(selected)
         st.session_state.auth_user = current_user
 
@@ -2416,7 +2480,10 @@ with st.sidebar:
 
     st.divider()
 
-    st.write(f"Logged in as **{current_user['email']}**")
+    if is_guest_user(current_user):
+        st.write("Browsing as **Guest**")
+    else:
+        st.write(f"Logged in as **{current_user['email']}**")
     if st.button("Log Out", key="sidebar_logout"):
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
@@ -2425,4 +2492,3 @@ with st.sidebar:
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
-
