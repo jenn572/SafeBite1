@@ -903,9 +903,9 @@ def decode_barcode_image(uploaded_photo):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def lookup_openfoodfacts(barcode):
-    """Look up a barcode on Open Food Facts (a free, open product
-    database). Returns a dict of product info, or None if not found."""
+def _fetch_openfoodfacts_product(barcode):
+    """A single raw lookup against Open Food Facts for one exact barcode.
+    Returns the raw product dict, or None if not found / request failed."""
     try:
         response = requests.get(
             f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json",
@@ -918,8 +918,44 @@ def lookup_openfoodfacts(barcode):
 
     if data.get("status") != 1:
         return None
+    return data.get("product", {})
 
-    product = data.get("product", {})
+
+def _barcode_variants(barcode):
+    """Open Food Facts mostly stores barcodes as 13-digit EAN-13, but
+    many US products scan as 12-digit UPC-A. Without trying both forms,
+    a real, well-known product can wrongly come back as "not found"
+    just because of this formatting difference."""
+    variants = [barcode]
+    if len(barcode) == 12:
+        variants.append("0" + barcode)  # UPC-A -> EAN-13
+    if len(barcode) == 13 and barcode.startswith("0"):
+        variants.append(barcode[1:])  # EAN-13 -> UPC-A
+
+    seen = set()
+    unique_variants = []
+    for candidate in variants:
+        if candidate not in seen:
+            unique_variants.append(candidate)
+            seen.add(candidate)
+    return unique_variants
+
+
+def lookup_openfoodfacts(barcode):
+    """Look up a barcode on Open Food Facts (a free, open product
+    database), trying a couple of common barcode-format variants before
+    giving up. Returns a dict of product info, or None if not found."""
+    product = None
+    matched_barcode = barcode
+    for candidate in _barcode_variants(barcode):
+        product = _fetch_openfoodfacts_product(candidate)
+        if product:
+            matched_barcode = candidate
+            break
+
+    if not product:
+        return None
+
     name = (
         product.get("product_name")
         or product.get("product_name_en")
@@ -944,7 +980,7 @@ def lookup_openfoodfacts(barcode):
     nutriments = product.get("nutriments", {})
 
     return {
-        "barcode": barcode,
+        "barcode": matched_barcode,
         "name": name,
         "brand": product.get("brands", ""),
         "ingredients_list": ingredients_list,
@@ -1802,8 +1838,17 @@ with tab_scan:
                     if not product_data:
                         st.session_state.barcode_result = None
                         st.warning(
-                            f"Barcode {barcode_value} isn't in the Open "
-                            "Food Facts database yet."
+                            f"Barcode **{barcode_value}** isn't in the Open "
+                            "Food Facts database yet. Double check the "
+                            "number on the box matches what was read here — "
+                            "if it doesn't, the photo was likely misread; "
+                            "try again with better lighting and a "
+                            "straight-on angle."
+                        )
+                        st.caption(
+                            "You can also check "
+                            f"[openfoodfacts.org](https://world.openfoodfacts.org/product/{barcode_value}) "
+                            "directly to confirm whether this product is listed."
                         )
                     else:
                         st.session_state.barcode_result = product_data
