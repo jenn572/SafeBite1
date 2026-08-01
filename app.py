@@ -1161,6 +1161,145 @@ def find_matching_allergens(ingredients, user_allergies):
     return matched
 
 
+# ---- 2.55 PERSONAL DIETARY RESTRICTION CONFLICTS ---------------
+# For each dietary restriction option, the ingredient keywords that
+# would conflict with it (matched the same case-insensitive,
+# either-direction way as allergies above).
+DIETARY_RESTRICTION_INGREDIENT_FLAGS = {
+    "Vegan": [
+        "Milk", "Cream", "Egg Yolks", "Eggs", "Honey", "Butter", "Cheese",
+        "Mozzarella Cheese", "Whey", "Gelatin", "Yogurt",
+    ],
+    "Vegetarian": ["Beef", "Chicken", "Pork", "Turkey", "Gelatin", "Fish"],
+    "Pescatarian": ["Beef", "Chicken", "Pork", "Turkey", "Gelatin"],
+    "Halal": ["Pork", "Gelatin"],
+    "Kosher": [
+        "Pork", "Shellfish", "Shrimp", "Crab", "Lobster", "Scallops",
+        "Clams", "Mussels", "Oysters",
+    ],
+    "Gluten-Free": [
+        "Wheat", "Wheat Flour", "Whole Grain Wheat", "Whole Wheat Flour",
+        "Whole Wheat Crust", "Enriched Flour", "Refined White Flour",
+        "Oats", "Rye", "Barley", "Bleached Starch",
+    ],
+    "Dairy-Free": [
+        "Milk", "Cream", "Butter", "Cheese", "Mozzarella Cheese", "Whey",
+    ],
+    "Low-Sodium": [
+        "Salt", "Sea Salt", "Excess Sodium", "Sodium Nitrite",
+        "Sodium Nitrate", "Sodium Benzoate",
+        "Sodium Carboxymethyl Cellulose", "Disodium Inosinate",
+        "Disodium Guanylate",
+    ],
+    "Diabetic-Friendly": [
+        "Sugar", "Added Sugar", "High Fructose Corn Syrup", "Corn Syrup",
+        "Agave Nectar", "Honey",
+    ],
+    "Low-Sugar": [
+        "Sugar", "Added Sugar", "High Fructose Corn Syrup", "Corn Syrup",
+        "Agave Nectar",
+    ],
+    "Keto": [
+        "Sugar", "Added Sugar", "High Fructose Corn Syrup", "Corn Syrup",
+        "Wheat Flour", "Whole Wheat Flour", "Enriched Flour", "Oats",
+        "Honey", "Agave Nectar",
+    ],
+    "Paleo": [
+        "Sugar", "Wheat Flour", "Enriched Flour", "Oats", "Beans",
+        "Lentils", "Milk", "Cheese", "Corn Syrup",
+        "Monosodium Glutamate (MSG)",
+    ],
+    "Low-Carb": [
+        "Sugar", "Wheat Flour", "Enriched Flour", "Oats", "Corn Syrup",
+        "High Fructose Corn Syrup",
+    ],
+    "Non-GMO": [
+        "High Fructose Corn Syrup", "Soybean Oil", "Corn Syrup",
+        "Modified Food Starch",
+    ],
+    "Organic Only": [],
+}
+
+# Nutrition-based thresholds, checked only when real nutrition facts
+# are available (i.e. for barcode-scanned products, not the sample
+# dropdown items which have no nutrition data). Values are grams per
+# 100g, based on the UK FSA's public "high" traffic-light bands —
+# the same bands already used in compute_health_score above.
+DIETARY_RESTRICTION_NUTRITION_FLAGS = {
+    "Low-Sugar": ("sugar_100g", 22.5, "high sugar"),
+    "Diabetic-Friendly": ("sugar_100g", 22.5, "high sugar"),
+    "Keto": ("sugar_100g", 22.5, "high sugar"),
+    "Low-Carb": ("sugar_100g", 22.5, "high sugar"),
+    "Low-Sodium": ("sodium_100g", 0.6, "high sodium"),
+}
+
+
+def find_matching_dietary_conflicts(ingredients, user_restrictions, nutrition=None):
+    """Return (restriction, reason) pairs for each of the user's saved
+    dietary restrictions that this product conflicts with.
+
+    Checks ingredient keywords first (e.g. "Milk" conflicts with
+    "Vegan"), then falls back to nutrition thresholds when real
+    nutrition facts are available (e.g. high sugar conflicting with
+    "Low-Sugar" even if no ingredient explicitly says "Sugar")."""
+    if not user_restrictions:
+        return []
+
+    ingredients_lower = [i.lower() for i in ingredients]
+    nutrition = nutrition or {}
+    conflicts = []
+
+    for restriction in user_restrictions:
+        reason = None
+
+        for term in DIETARY_RESTRICTION_INGREDIENT_FLAGS.get(restriction, []):
+            term_lower = term.lower()
+            if any(term_lower in ing or ing in term_lower for ing in ingredients_lower):
+                reason = term
+                break
+
+        if not reason and restriction in DIETARY_RESTRICTION_NUTRITION_FLAGS:
+            nutrient_key, threshold, label = DIETARY_RESTRICTION_NUTRITION_FLAGS[restriction]
+            value = nutrition.get(nutrient_key)
+            if value is not None and value > threshold:
+                reason = label
+
+        if reason:
+            conflicts.append((restriction, reason))
+
+    return conflicts
+
+
+def render_warning_banner(allergy_matches, dietary_conflicts):
+    """Render the same pulsing red warning banner for personal allergy
+    matches and/or dietary restriction conflicts found in a scanned
+    product. Renders nothing if there's nothing to warn about."""
+    if not allergy_matches and not dietary_conflicts:
+        return
+
+    lines = []
+    if allergy_matches:
+        matches_text = ", ".join(html.escape(a) for a in allergy_matches)
+        lines.append(f"⚠️ allergy warning<br>this product contains: {matches_text}")
+    if dietary_conflicts:
+        conflicts_text = ", ".join(
+            f"{html.escape(restriction)} ({html.escape(reason)})"
+            for restriction, reason in dietary_conflicts
+        )
+        lines.append(
+            f"⚠️ dietary restriction warning<br>conflicts with: {conflicts_text}"
+        )
+
+    st.markdown(
+        f"""
+        <div class="allergy-warning-banner">
+            {"<br><br>".join(lines)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ---- 2.6 BARCODE SCANNING (real products via Open Food Facts) ----
 
 def decode_barcode_image(uploaded_photo):
@@ -2332,21 +2471,24 @@ with tab_scan:
         if st.session_state.barcode_result:
             result = st.session_state.barcode_result
 
-            # Personal allergy warning — shown first, above everything else
+            # Personal allergy warning + dietary restriction conflicts —
+            # shown first, above everything else
             user_allergies = get_user_allergies(current_user)
             personal_matches = find_matching_allergens(
                 result["ingredients_list"], user_allergies
             )
-            if personal_matches:
-                matches_text = ", ".join(html.escape(a) for a in personal_matches)
-                st.markdown(
-                    f"""
-                    <div class="allergy-warning-banner">
-                        ⚠️ allergy warning<br>this product contains: {matches_text}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+
+            user_dietary_restrictions = get_user_dietary_restrictions(current_user)
+            dietary_conflicts = find_matching_dietary_conflicts(
+                result["ingredients_list"],
+                user_dietary_restrictions,
+                nutrition={
+                    "sugar_100g": result["sugar_100g"],
+                    "sodium_100g": result["sodium_100g"],
+                },
+            )
+
+            render_warning_banner(personal_matches, dietary_conflicts)
 
             st.divider()
 
@@ -2451,20 +2593,17 @@ with tab_scan:
         result_choice = st.session_state.last_result
         ingredients = PRODUCTS[result_choice]
 
-        # ---- Personal allergy warning (shown first, above everything) ----
+        # ---- Personal allergy warning + dietary restriction conflicts
+        # (shown first, above everything) ----
         user_allergies = get_user_allergies(current_user)
         personal_matches = find_matching_allergens(ingredients, user_allergies)
 
-        if personal_matches:
-            matches_text = ", ".join(html.escape(a) for a in personal_matches)
-            st.markdown(
-                f"""
-                <div class="allergy-warning-banner">
-                    ⚠️ allergy warning<br>this product contains: {matches_text}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        user_dietary_restrictions = get_user_dietary_restrictions(current_user)
+        dietary_conflicts = find_matching_dietary_conflicts(
+            ingredients, user_dietary_restrictions
+        )
+
+        render_warning_banner(personal_matches, dietary_conflicts)
 
         st.divider()
         st.subheader(f"{PRODUCT_EMOJIS.get(result_choice, '📦')} {result_choice}")
