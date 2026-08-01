@@ -1395,25 +1395,17 @@ def _barcode_variants(barcode):
     return unique_variants
 
 
-def lookup_openfoodfacts(barcode):
-    """Look up a barcode on Open Food Facts, trying a couple of common
-    barcode-format variants before giving up. Returns (result_dict,
-    None) on success, (None, None) if genuinely not found, or (None,
-    error_message) if the request itself failed."""
-    product = None
-    matched_barcode = barcode
-    last_error = None
-    for candidate in _barcode_variants(barcode):
-        product, error = _fetch_openfoodfacts_product(candidate)
-        if error:
-            last_error = error
-        if product:
-            matched_barcode = candidate
-            break
+def _build_scan_result(product, matched_barcode, translate_ingredients=True):
+    """Turn a raw Open Food Facts product dict into the result shape
+    the rest of the app works with (name, ingredients, nutrition,
+    category, etc). Shared by a direct barcode lookup and by the
+    healthier-alternatives search below, so both produce identical,
+    fully-detailed product cards.
 
-    if not product:
-        return None, last_error
-
+    translate_ingredients=False skips the (slower, per-product) call
+    to translate_to_english — used when scoring many alternative
+    candidates at once, where only ones with existing English text
+    are usable anyway."""
     name = (
         product.get("product_name")
         or product.get("product_name_en")
@@ -1432,7 +1424,12 @@ def lookup_openfoodfacts(barcode):
     translation_note = None
     if ingredients_text_en:
         ingredients_text_final = ingredients_text_en
-    elif ingredients_text_native and source_lang and source_lang != "en":
+    elif (
+        ingredients_text_native
+        and translate_ingredients
+        and source_lang
+        and source_lang != "en"
+    ):
         translated_text, was_translated = translate_to_english(
             ingredients_text_native, source_lang
         )
@@ -1458,7 +1455,13 @@ def lookup_openfoodfacts(barcode):
 
     nutriments = product.get("nutriments", {})
 
-    result = {
+    # Open Food Facts' categories_tags run general -> specific (e.g.
+    # ["en:cereals-and-potatoes", "en:breakfast-cereals"]), so the last
+    # tag is the most specific one to search similar products against.
+    categories_tags = product.get("categories_tags") or []
+    category_tag = categories_tags[-1] if categories_tags else None
+
+    return {
         "barcode": matched_barcode,
         "name": name,
         "brand": product.get("brands", ""),
@@ -1469,8 +1472,110 @@ def lookup_openfoodfacts(barcode):
         "sodium_100g": nutriments.get("sodium_100g"),
         "saturated_fat_100g": nutriments.get("saturated-fat_100g"),
         "fiber_100g": nutriments.get("fiber_100g"),
+        "category_tag": category_tag,
     }
-    return result, None
+
+
+def lookup_openfoodfacts(barcode):
+    """Look up a barcode on Open Food Facts, trying a couple of common
+    barcode-format variants before giving up. Returns (result_dict,
+    None) on success, (None, None) if genuinely not found, or (None,
+    error_message) if the request itself failed."""
+    product = None
+    matched_barcode = barcode
+    last_error = None
+    for candidate in _barcode_variants(barcode):
+        product, error = _fetch_openfoodfacts_product(candidate)
+        if error:
+            last_error = error
+        if product:
+            matched_barcode = candidate
+            break
+
+    if not product:
+        return None, last_error
+
+    return _build_scan_result(product, matched_barcode, translate_ingredients=True), None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _search_openfoodfacts_category(category_tag, page_size=24):
+    """Raw search against Open Food Facts for popular products in a
+    given category. Returns (products_list, error_message)."""
+    if not category_tag:
+        return [], None
+    try:
+        response = requests.get(
+            "https://world.openfoodfacts.org/api/v2/search",
+            headers=OPENFOODFACTS_HEADERS,
+            params={
+                "categories_tags": category_tag,
+                "sort_by": "unique_scans_n",
+                "page_size": page_size,
+                "fields": (
+                    "code,product_name,product_name_en,brands,"
+                    "image_front_small_url,image_url,ingredients_text,"
+                    "ingredients_text_en,lang,nutriments,categories_tags"
+                ),
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        return [], f"Request failed: {exc}"
+    except ValueError as exc:
+        return [], f"Couldn't parse the response: {exc}"
+
+    return data.get("products", []), None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_healthier_alternatives(category_tag, exclude_barcode, min_score=70, max_results=5):
+    """Search Open Food Facts for popular products in the same category
+    as a scanned product, score each candidate with the app's own
+    health-score logic, and return up to max_results products scoring
+    at or above min_score, best first — the same data (ingredients,
+    nutrition) shown for the original scanned product is available for
+    each one. Returns (alternatives_list, error_message)."""
+    if not category_tag:
+        return [], None
+
+    raw_products, error = _search_openfoodfacts_category(category_tag)
+    if error:
+        return [], error
+
+    scored = []
+    seen_names = set()
+    for product in raw_products:
+        code = product.get("code")
+        if not code or code == exclude_barcode:
+            continue
+
+        candidate = _build_scan_result(product, code, translate_ingredients=False)
+        if not candidate["ingredients_list"]:
+            continue
+
+        name_key = (candidate["name"].strip().lower(), candidate["brand"].strip().lower())
+        if name_key in seen_names:
+            continue
+
+        score, _, _, _ = compute_health_score(
+            candidate["ingredients_list"],
+            {
+                "sugar_100g": candidate["sugar_100g"],
+                "sodium_100g": candidate["sodium_100g"],
+                "saturated_fat_100g": candidate["saturated_fat_100g"],
+                "fiber_100g": candidate["fiber_100g"],
+            },
+        )
+        if score >= min_score:
+            seen_names.add(name_key)
+            candidate["score"] = score
+            scored.append(candidate)
+
+    scored.sort(key=lambda c: c["score"], reverse=True)
+    return scored[:max_results], None
 
 
 def compute_health_score(ingredients_list, nutrition):
@@ -1540,6 +1645,161 @@ def compute_health_score(ingredients_list, nutrition):
     return score, matched_harmful, matched_moderate, matched_healthy
 
 
+def render_product_scan_result(result, current_user, show_alternatives=True):
+    """Render the full result view for one Open Food Facts product:
+    personal allergy/dietary warnings, health score, ingredient list,
+    and the harmful/moderate/healthy breakdown. When show_alternatives
+    is True and the score comes in under 70, also looks up and lists
+    healthier alternatives in the same category (Yuka-style) that the
+    user can tap to view in the same amount of detail. Returns the
+    computed health score."""
+
+    user_allergies = get_user_allergies(current_user)
+    personal_matches = find_matching_allergens(result["ingredients_list"], user_allergies)
+
+    user_dietary_restrictions = get_user_dietary_restrictions(current_user)
+    dietary_conflicts = find_matching_dietary_conflicts(
+        result["ingredients_list"],
+        user_dietary_restrictions,
+        nutrition={
+            "sugar_100g": result["sugar_100g"],
+            "sodium_100g": result["sodium_100g"],
+        },
+    )
+
+    render_warning_banner(personal_matches, dietary_conflicts)
+
+    st.divider()
+
+    if result["image_url"]:
+        img_col, info_col = st.columns([1, 2])
+        with img_col:
+            st.image(result["image_url"], width=100)
+        with info_col:
+            st.subheader(result["name"])
+            if result["brand"]:
+                st.caption(result["brand"])
+    else:
+        st.subheader(result["name"])
+        if result["brand"]:
+            st.caption(result["brand"])
+
+    score, matched_harmful, matched_moderate, matched_healthy = compute_health_score(
+        result["ingredients_list"],
+        {
+            "sugar_100g": result["sugar_100g"],
+            "sodium_100g": result["sodium_100g"],
+            "saturated_fat_100g": result["saturated_fat_100g"],
+            "fiber_100g": result["fiber_100g"],
+        },
+    )
+    if score >= 70:
+        score_color = "#3F6B24"
+    elif score >= 40:
+        score_color = "#B8860B"
+    else:
+        score_color = "#A23B2E"
+
+    st.markdown(
+        f"""
+        <div class="stat-card" style="border-color:{score_color};">
+            <div class="stat-number" style="color:{score_color};">{score}/100</div>
+            <div class="stat-label">Health Score</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.write("")
+    if result["ingredients_list"]:
+        st.write("#### Ingredients")
+        if result.get("translation_note"):
+            st.caption(f"🌐 {result['translation_note']}")
+        for ingredient in result["ingredients_list"]:
+            st.markdown(
+                f'<div class="ingredient-card">🌱 {html.escape(ingredient)}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("No ingredient list was available for this product.")
+
+    st.write("")
+
+    if matched_harmful:
+        st.warning("⚠️ Harmful ingredients found")
+        for name in matched_harmful:
+            st.write(f"**{name}:** {WATCH_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+    else:
+        st.success("✅ No harmful ingredients from our list were found.")
+
+    if matched_moderate:
+        st.markdown(
+            '<div class="instruction-card" style="background-color:#FDF3E2;'
+            'border-color:#F0D8A0;color:#8A6300;font-weight:600;">'
+            '🟡 Semi-harmful ingredients found — fine in moderation'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        for name in matched_moderate:
+            st.write(f"**{name}:** {MODERATE_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+
+    if matched_healthy:
+        st.info("🌿 Healthy ingredients spotted")
+        for name in matched_healthy:
+            st.write(f"**{name}:** {HEALTHY_HIGHLIGHTS.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+
+    if show_alternatives and score < 70:
+        st.divider()
+        st.markdown('<p class="section-title">🌟 Healthier Alternatives</p>', unsafe_allow_html=True)
+        st.caption(
+            "Other products in the same Open Food Facts category "
+            "scoring 70+ on our health score."
+        )
+
+        if not result.get("category_tag"):
+            st.caption(
+                "This product isn't categorized on Open Food Facts, so "
+                "we can't look up alternatives for it."
+            )
+        else:
+            with st.spinner("Looking for healthier alternatives..."):
+                alternatives, alt_error = fetch_healthier_alternatives(
+                    result["category_tag"], exclude_barcode=result["barcode"]
+                )
+
+            if alt_error:
+                st.caption("Couldn't load alternatives right now — try again later.")
+            elif not alternatives:
+                st.caption("No stronger alternatives found in this category yet.")
+            else:
+                for alt in alternatives:
+                    alt_img_col, alt_info_col, alt_btn_col = st.columns([1, 2.4, 1])
+                    with alt_img_col:
+                        if alt["image_url"]:
+                            st.image(alt["image_url"], width=60)
+                    with alt_info_col:
+                        st.markdown(f"**{html.escape(alt['name'])}**")
+                        if alt["brand"]:
+                            st.caption(alt["brand"])
+                        st.markdown(
+                            f'<span style="color:#3F6B24; font-weight:700;">'
+                            f'{alt["score"]}/100</span>',
+                            unsafe_allow_html=True,
+                        )
+                    with alt_btn_col:
+                        st.write("")
+                        if st.button("View", key=f"view_alt_{alt['barcode']}"):
+                            st.session_state.viewing_alternative_barcode = alt["barcode"]
+                            st.rerun()
+                    st.markdown(
+                        '<hr style="margin:0.3rem 0 0.7rem 0; border:none; '
+                        'border-top:1px solid #DCE4C9;">',
+                        unsafe_allow_html=True,
+                    )
+
+    return score
+
+
 # ---- 3. PAGE SETUP ------------------------------------------
 
 st.set_page_config(
@@ -1565,6 +1825,9 @@ if "barcode_result" not in st.session_state:
 
 if "last_barcode_fingerprint" not in st.session_state:
     st.session_state.last_barcode_fingerprint = None
+
+if "viewing_alternative_barcode" not in st.session_state:
+    st.session_state.viewing_alternative_barcode = None
 
 # Show the splash screen only once per browser session (the very first
 # script run) — not on every rerun triggered by clicks, tabs, etc.
@@ -2223,6 +2486,7 @@ def render_auth_page():
                     st.session_state.last_result = None
                     st.session_state.pop("allergy_select", None)
                     st.session_state.pop("dietary_select", None)
+                    st.session_state.viewing_alternative_barcode = None
                     st.session_state.pop("last_uploaded_pic_fingerprint", None)
                     st.rerun()
                 else:
@@ -2272,6 +2536,7 @@ def render_auth_page():
                 st.session_state.last_result = None
                 st.session_state.pop("allergy_select", None)
                 st.session_state.pop("dietary_select", None)
+                st.session_state.viewing_alternative_barcode = None
                 st.session_state.pop("last_uploaded_pic_fingerprint", None)
                 st.success("Account created! Redirecting...")
                 st.rerun()
@@ -2288,6 +2553,7 @@ def render_auth_page():
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
+        st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
     st.caption(
@@ -2395,6 +2661,7 @@ with tab_scan:
             )
         else:
             st.session_state.barcode_result = product_data
+            st.session_state.viewing_alternative_barcode = None
             st.session_state.scan_count += 1
             if not is_guest_user(current_user):
                 update_scan_count(current_user["email"], st.session_state.scan_count)
@@ -2468,106 +2735,31 @@ with tab_scan:
                 else:
                     _run_barcode_lookup(manual_barcode_clean)
 
-        if st.session_state.barcode_result:
-            result = st.session_state.barcode_result
-
-            # Personal allergy warning + dietary restriction conflicts —
-            # shown first, above everything else
-            user_allergies = get_user_allergies(current_user)
-            personal_matches = find_matching_allergens(
-                result["ingredients_list"], user_allergies
-            )
-
-            user_dietary_restrictions = get_user_dietary_restrictions(current_user)
-            dietary_conflicts = find_matching_dietary_conflicts(
-                result["ingredients_list"],
-                user_dietary_restrictions,
-                nutrition={
-                    "sugar_100g": result["sugar_100g"],
-                    "sodium_100g": result["sodium_100g"],
-                },
-            )
-
-            render_warning_banner(personal_matches, dietary_conflicts)
-
-            st.divider()
-
-            if result["image_url"]:
-                img_col, info_col = st.columns([1, 2])
-                with img_col:
-                    st.image(result["image_url"], width=100)
-                with info_col:
-                    st.subheader(result["name"])
-                    if result["brand"]:
-                        st.caption(result["brand"])
-            else:
-                st.subheader(result["name"])
-                if result["brand"]:
-                    st.caption(result["brand"])
-
-            score, matched_harmful, matched_moderate, matched_healthy = compute_health_score(
-                result["ingredients_list"],
-                {
-                    "sugar_100g": result["sugar_100g"],
-                    "sodium_100g": result["sodium_100g"],
-                    "saturated_fat_100g": result["saturated_fat_100g"],
-                    "fiber_100g": result["fiber_100g"],
-                },
-            )
-            if score >= 70:
-                score_color = "#3F6B24"
-            elif score >= 40:
-                score_color = "#B8860B"
-            else:
-                score_color = "#A23B2E"
+        # ---- Viewing a suggested alternative product's full details ----
+        if st.session_state.viewing_alternative_barcode:
+            if st.button("← Back to your scanned product", key="back_from_alt"):
+                st.session_state.viewing_alternative_barcode = None
+                st.rerun()
 
             st.markdown(
-                f"""
-                <div class="stat-card" style="border-color:{score_color};">
-                    <div class="stat-number" style="color:{score_color};">{score}/100</div>
-                    <div class="stat-label">Health Score</div>
-                </div>
-                """,
+                '<p class="section-title">🌟 Alternative Product</p>',
                 unsafe_allow_html=True,
             )
-
-            st.write("")
-            if result["ingredients_list"]:
-                st.write("#### Ingredients")
-                if result.get("translation_note"):
-                    st.caption(f"🌐 {result['translation_note']}")
-                for ingredient in result["ingredients_list"]:
-                    st.markdown(
-                        f'<div class="ingredient-card">🌱 {html.escape(ingredient)}</div>',
-                        unsafe_allow_html=True,
-                    )
-            else:
-                st.caption("No ingredient list was available for this product.")
-
-            st.write("")
-
-            if matched_harmful:
-                st.warning("⚠️ Harmful ingredients found")
-                for name in matched_harmful:
-                    st.write(f"**{name}:** {WATCH_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
-            else:
-                st.success("✅ No harmful ingredients from our list were found.")
-
-            if matched_moderate:
-                st.markdown(
-                    '<div class="instruction-card" style="background-color:#FDF3E2;'
-                    'border-color:#F0D8A0;color:#8A6300;font-weight:600;">'
-                    '🟡 Semi-harmful ingredients found — fine in moderation'
-                    '</div>',
-                    unsafe_allow_html=True,
+            with st.spinner("Loading product..."):
+                alt_result, alt_lookup_error = lookup_openfoodfacts(
+                    st.session_state.viewing_alternative_barcode
                 )
-                for name in matched_moderate:
-                    st.write(f"**{name}:** {MODERATE_LIST.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+            if alt_lookup_error or not alt_result:
+                st.warning("Couldn't load that product's details right now.")
+            else:
+                # No further nested alternatives — keeps the tap-through
+                # to one level deep, like Yuka's swap screen.
+                render_product_scan_result(alt_result, current_user, show_alternatives=False)
 
-            if matched_healthy:
-                st.info("🌿 Healthy ingredients spotted")
-                for name in matched_healthy:
-                    st.write(f"**{name}:** {HEALTHY_HIGHLIGHTS.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
+        elif st.session_state.barcode_result:
+            render_product_scan_result(
+                st.session_state.barcode_result, current_user, show_alternatives=True
+            )
 
     st.divider()
 
@@ -2928,6 +3120,7 @@ with tab_profile:
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
+        st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
 
@@ -2964,5 +3157,6 @@ with st.sidebar:
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
+        st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
