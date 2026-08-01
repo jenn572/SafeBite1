@@ -2473,6 +2473,85 @@ st.markdown(
             font-size: 0.9rem;
             line-height: 1.5;
         }
+
+        /* ---- Donate page ---- */
+
+        /* GoFundMe card */
+        .gofundme-card {
+            background: linear-gradient(135deg, #DCE4C9 0%, #C6D2A8 100%);
+            border-radius: 20px;
+            padding: 1.6rem 1.6rem;
+            margin-bottom: 1.4rem;
+            text-align: center;
+        }
+        .gofundme-card-title {
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: #33421F;
+            margin-bottom: 0.3rem;
+        }
+        .gofundme-card-sub {
+            font-size: 0.9rem;
+            color: #4C5A38;
+            margin-bottom: 1rem;
+        }
+        .gofundme-link-button {
+            display: inline-block;
+            background-color: #526539;
+            color: #FFFFFF !important;
+            font-weight: 700;
+            font-size: 0.95rem;
+            text-decoration: none;
+            border-radius: 999px;
+            padding: 0.7rem 1.8rem;
+            box-shadow: 0 3px 10px rgba(82, 101, 57, 0.25);
+            transition: transform 0.15s ease;
+        }
+        .gofundme-link-button:hover {
+            transform: translateY(-2px);
+        }
+
+        /* Feeding America partner card */
+        .partner-card {
+            background-color: #FFFFFF;
+            border: 1px solid #DCE4C9;
+            border-radius: 20px;
+            padding: 1.6rem 1.6rem;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(82, 101, 57, 0.08);
+            margin-bottom: 1.2rem;
+        }
+        .partner-logo {
+            max-width: 260px;
+            width: 80%;
+            margin: 0 auto 1.2rem auto;
+            display: block;
+        }
+        .donate-now-button {
+            display: inline-block;
+            background-color: #526539;
+            color: #FFFFFF !important;
+            font-weight: 800;
+            font-size: 1rem;
+            letter-spacing: 0.02em;
+            text-decoration: none;
+            border-radius: 999px;
+            padding: 0.85rem 2.6rem;
+            box-shadow: 0 4px 12px rgba(82, 101, 57, 0.3);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            margin: 0.4rem 0 1.3rem 0;
+        }
+        .donate-now-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(82, 101, 57, 0.38);
+        }
+        .partner-statement {
+            color: #4C5A38;
+            font-size: 0.92rem;
+            line-height: 1.6;
+            text-align: left;
+            margin-top: 0.4rem;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -2738,8 +2817,8 @@ def render_greeting_and_stats():
 # card and stats — so navigation is always the first thing visible,
 # on every screen size, without needing to scroll past the stats.
 
-tab_scan, tab_dictionary, tab_allergies, tab_profile = st.tabs(
-    ["🔍  Scanner", "📖  Dictionary", "🚨  Allergies", "👤  Profile"]
+tab_profile, tab_scan, tab_dictionary, tab_allergies, tab_donate = st.tabs(
+    ["👤  Profile", "🔍  Scanner", "📖  Dictionary", "🚨  Allergies", "💝  Donate"]
 )
 
 
@@ -3386,6 +3465,116 @@ with tab_profile:
         st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
+
+
+# ============================================================
+#  DONATE TAB
+# ============================================================
+
+# TODO: replace with your actual GoFundMe campaign URL.
+GOFUNDME_URL = ""
+
+FEEDING_AMERICA_DONATE_URL = (
+    "https://give.feedingamerica.org/JikGJ41QV0GIR-DFe7Qciw2"
+    "?r=n&ms=26-T2A&oa_onsite_promo=header"
+)
+FEEDING_AMERICA_LOGO_URL = (
+    "https://www.feedingamerica.org/themes/custom/ts_feeding_america/"
+    "images/svgs/logo-2020.svg"
+)
+
+with tab_donate:
+
+    render_greeting_and_stats()
+
+    st.markdown(
+        """
+        <div class="hero-card">
+            <div class="hero-title">Support the fight against hunger</div>
+            <p class="hero-sub">
+                SafeBite is about helping people eat safely — supporting
+                these causes helps make sure people have enough to eat in
+                the first place.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ---- GoFundMe ----
+    st.markdown('<p class="section-title">🌱 Our GoFundMe</p>', unsafe_allow_html=True)
+
+    if GOFUNDME_URL:
+        st.markdown(
+            f"""
+            <div class="gofundme-card">
+                <div class="gofundme-card-title">Help SafeBite Give Back</div>
+                <div class="gofundme-card-sub">
+                    Every contribution helps us keep building tools that
+                    keep people safe and support communities in need.
+                </div>
+                <a class="gofundme-link-button" href="{GOFUNDME_URL}" target="_blank">
+                    🌿 View Our GoFundMe
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="gofundme-card">
+                <div class="gofundme-card-title">Help SafeBite Give Back</div>
+                <div class="gofundme-card-sub">
+                    Every contribution helps us keep building tools that
+                    keep people safe and support communities in need.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "⚠️ No GoFundMe link is set yet — add your campaign URL to the "
+            "`GOFUNDME_URL` variable near the top of the Donate tab to "
+            "activate this button."
+        )
+
+    st.write("")
+
+    # ---- Feeding America ----
+    st.markdown('<p class="section-title">🍽️ Feeding America</p>', unsafe_allow_html=True)
+
+    st.markdown(
+        f"""
+        <div class="partner-card">
+            <img class="partner-logo" src="{FEEDING_AMERICA_LOGO_URL}" alt="Feeding America logo">
+            <div>
+                <a class="donate-now-button" href="{FEEDING_AMERICA_DONATE_URL}" target="_blank" rel="noopener noreferrer">
+                    Donate Now
+                </a>
+            </div>
+            <div class="partner-statement">
+                Feeding America is a nonprofit organization that supports
+                millions of Americans struggling with hunger and food
+                insecurity. Through a nationwide network of food banks,
+                they turn donations into meals, delivering food directly
+                to local communities so that no one has to go without.
+                Every dollar donated helps stock food banks with fresh
+                groceries, provide meals for children and seniors, and
+                bring relief to families facing hard times. Supporting
+                Feeding America means standing with neighbors across the
+                country and helping build a future where hunger is no
+                longer a barrier to a healthy life.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.caption(
+        "You'll be taken to Feeding America's official, secure donation "
+        "page in a new tab."
+    )
 
 
 
