@@ -25,6 +25,7 @@ from psycopg2.extras import RealDictCursor
 from PIL import Image
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # pyzbar needs a system library (libzbar0) that's installed via
 # packages.txt on Streamlit Cloud. If it's missing, don't crash the
@@ -98,6 +99,7 @@ def init_db():
             allergies TEXT DEFAULT '[]',
             dietary_restrictions TEXT DEFAULT '[]',
             profile_picture TEXT,
+            coins INTEGER DEFAULT 0,
             created_at TEXT NOT NULL
         )
         """
@@ -110,6 +112,7 @@ def init_db():
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT '[]'")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dietary_restrictions TEXT DEFAULT '[]'")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS coins INTEGER DEFAULT 0")
     conn.commit()
     cur.close()
     conn.close()
@@ -240,6 +243,18 @@ def update_scan_count(email, new_count):
     cur.execute(
         "UPDATE users SET scan_count = %s WHERE email = %s",
         (new_count, email.strip().lower()),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def update_coins(email, new_total):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET coins = %s WHERE email = %s",
+        (new_total, email.strip().lower()),
     )
     conn.commit()
     cur.close()
@@ -1848,6 +1863,9 @@ if "scan_count" not in st.session_state:
 if "streak_count" not in st.session_state:
     st.session_state.streak_count = 0
 
+if "coins" not in st.session_state:
+    st.session_state.coins = 0
+
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
@@ -2637,6 +2655,7 @@ def make_guest_user():
         "password_hash": None,
         "scan_count": STARTING_SCAN_COUNT,
         "streak_count": 0,
+        "coins": 0,
         "last_login_date": None,
         "allergies": "[]",
         "dietary_restrictions": "[]",
@@ -2686,6 +2705,7 @@ def render_auth_page():
                     st.session_state.auth_user = user
                     st.session_state.scan_count = user["scan_count"]
                     st.session_state.streak_count = user["streak_count"]
+                    st.session_state.coins = user["coins"] or 0
                     st.session_state.last_result = None
                     st.session_state.pop("allergy_select", None)
                     st.session_state.pop("dietary_select", None)
@@ -2736,6 +2756,7 @@ def render_auth_page():
                 st.session_state.auth_user = user
                 st.session_state.scan_count = user["scan_count"]
                 st.session_state.streak_count = user["streak_count"]
+                st.session_state.coins = user["coins"] or 0
                 st.session_state.last_result = None
                 st.session_state.pop("allergy_select", None)
                 st.session_state.pop("dietary_select", None)
@@ -2753,6 +2774,7 @@ def render_auth_page():
         st.session_state.auth_user = make_guest_user()
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
+        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
@@ -2772,6 +2794,49 @@ if st.session_state.auth_user is None:
 
 current_user = st.session_state.auth_user
 display_name = current_user["name"] or current_user["email"].split("@")[0]
+
+
+# ---- 5.6 HEALTHY CATCH — SAVE COINS ROUND TRIP -----------------
+# The Healthy Catch game runs entirely inside an embedded HTML/JS
+# component (its own iframe), so it can't call Python functions or
+# touch st.session_state directly. When the player taps "Save to
+# Account," the component's JS navigates the *parent* page (this
+# Streamlit app) to a URL with the round's coin total attached as a
+# query parameter. That triggers a normal Streamlit rerun, and this
+# block is what picks the value up, credits the account, and clears
+# the parameter so it can't be replayed by refreshing or re-sharing
+# the URL.
+GAME_ROUND_MIN_COINS = -600
+GAME_ROUND_MAX_COINS = 1200
+
+if "save_game_coins" in st.query_params:
+    _raw_round_coins = st.query_params.get("save_game_coins")
+    try:
+        _round_coins = int(_raw_round_coins)
+    except (TypeError, ValueError):
+        _round_coins = None
+
+    if _round_coins is not None:
+        _round_coins = max(GAME_ROUND_MIN_COINS, min(GAME_ROUND_MAX_COINS, _round_coins))
+        if is_guest_user(current_user):
+            st.session_state.game_save_message = (
+                "warning",
+                "Guest sessions can't save coins — create a free account "
+                "first so your progress sticks around.",
+            )
+        else:
+            _new_total = max(0, st.session_state.coins + _round_coins)
+            update_coins(current_user["email"], _new_total)
+            st.session_state.coins = _new_total
+            current_user["coins"] = _new_total
+            st.session_state.auth_user = current_user
+            st.session_state.game_save_message = (
+                "success",
+                f"Saved! You now have {_new_total} coins.",
+            )
+
+    st.query_params.clear()
+    st.rerun()
 
 
 def render_greeting_and_stats():
@@ -2817,8 +2882,8 @@ def render_greeting_and_stats():
 # card and stats — so navigation is always the first thing visible,
 # on every screen size, without needing to scroll past the stats.
 
-tab_profile, tab_scan, tab_dictionary, tab_allergies, tab_donate = st.tabs(
-    ["👤  Profile", "🔍  Scanner", "📖  Dictionary", "🚨  Allergies", "💝  Donate"]
+tab_profile, tab_scan, tab_dictionary, tab_allergies, tab_games, tab_donate = st.tabs(
+    ["👤  Profile", "🔍  Scanner", "📖  Dictionary", "🚨  Allergies", "🎮  Games", "💝  Donate"]
 )
 
 
@@ -3263,6 +3328,650 @@ with tab_allergies:
 
 
 # ============================================================
+#  GAMES TAB
+# ============================================================
+
+HEALTHY_CATCH_HEALTHY_EMOJIS = ["🍎", "🍇", "🥦", "🥕", "🍌", "🍓", "🥑", "🍊", "🍍", "🍉"]
+HEALTHY_CATCH_UNHEALTHY_EMOJIS = ["🍩", "🍕", "🍫", "🧁", "🍟", "🍪", "🍭", "🥤"]
+
+HEALTHY_CATCH_HTML = """
+<style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; }
+
+    .hc-app {
+        max-width: 480px;
+        margin: 0 auto;
+        background-color: #FCF7E8;
+        border: 1px solid #EADFC0;
+        border-radius: 26px;
+        padding: 18px 18px 20px 18px;
+        box-shadow: 0 4px 16px rgba(82, 101, 57, 0.12);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        user-select: none;
+    }
+
+    .hc-badge {
+        display: inline-block;
+        background-color: #526539;
+        color: #FFFFFF;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        padding: 4px 14px;
+        border-radius: 999px;
+        margin-bottom: 8px;
+    }
+
+    .hc-title {
+        font-size: 28px;
+        font-weight: 900;
+        color: #33421F;
+        letter-spacing: 0.01em;
+        line-height: 1.05;
+        margin-bottom: 4px;
+    }
+
+    .hc-subtitle {
+        font-size: 14px;
+        color: #6B7A52;
+        margin-bottom: 14px;
+    }
+
+    .hc-playfield {
+        position: relative;
+        width: 100%;
+        height: 460px;
+        border-radius: 20px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #8FCBF2 0%, #CFEBFC 100%);
+        box-shadow: inset 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    .hc-cloud {
+        position: absolute;
+        background-color: rgba(255,255,255,0.75);
+        border-radius: 50%;
+        z-index: 1;
+    }
+
+    .hc-hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 5;
+    }
+
+    .hc-pill {
+        background-color: rgba(255,255,255,0.95);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-weight: 800;
+        font-size: 15px;
+        color: #33421F;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        border: none;
+        cursor: pointer;
+    }
+
+    .hc-pause-btn {
+        padding: 8px 13px;
+        font-size: 16px;
+        line-height: 1;
+    }
+
+    .hc-items-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+    }
+
+    .hc-food {
+        position: absolute;
+        font-size: 42px;
+        line-height: 1;
+        pointer-events: none;
+        filter: drop-shadow(0 3px 4px rgba(0,0,0,0.18));
+    }
+
+    .hc-float {
+        position: absolute;
+        font-weight: 800;
+        font-size: 20px;
+        pointer-events: none;
+        z-index: 6;
+        animation: hc-float-up 0.7s ease forwards;
+    }
+    .hc-float-good { color: #2F7D32; }
+    .hc-float-bad { color: #B23A3A; }
+
+    @keyframes hc-float-up {
+        0%   { transform: translateY(0);    opacity: 1; }
+        100% { transform: translateY(-32px); opacity: 0; }
+    }
+
+    .hc-shelf {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 46px;
+        background: linear-gradient(180deg, #A5713E 0%, #7A4E28 100%);
+        border-top: 3px solid #5E3B1E;
+        z-index: 2;
+    }
+
+    .hc-cart {
+        position: absolute;
+        bottom: 46px;
+        width: 74px;
+        height: 64px;
+        font-size: 52px;
+        line-height: 64px;
+        text-align: center;
+        cursor: grab;
+        z-index: 4;
+        filter: drop-shadow(0 4px 5px rgba(0,0,0,0.25));
+        touch-action: none;
+    }
+    .hc-cart:active { cursor: grabbing; }
+
+    .hc-arrow {
+        position: absolute;
+        bottom: 54px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background-color: #4C7A3D;
+        color: #FFFFFF;
+        border: none;
+        font-size: 18px;
+        font-weight: 800;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        cursor: pointer;
+        z-index: 5;
+    }
+    .hc-arrow-left { left: 10px; }
+    .hc-arrow-right { right: 10px; }
+
+    .hc-overlay {
+        position: absolute;
+        inset: 0;
+        background-color: rgba(252, 247, 232, 0.94);
+        backdrop-filter: blur(2px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 24px;
+        z-index: 10;
+    }
+
+    .hc-overlay-emoji { font-size: 46px; margin-bottom: 6px; }
+
+    .hc-overlay-title {
+        font-size: 21px;
+        font-weight: 900;
+        color: #33421F;
+        margin-bottom: 8px;
+    }
+
+    .hc-overlay-text {
+        font-size: 14px;
+        color: #5B6B47;
+        margin-bottom: 18px;
+        max-width: 300px;
+    }
+
+    .hc-overlay-score {
+        font-size: 32px;
+        font-weight: 900;
+        margin-bottom: 20px;
+    }
+    .hc-score-good { color: #2F7D32; }
+    .hc-score-bad { color: #B23A3A; }
+
+    .hc-overlay-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        width: 100%;
+        max-width: 260px;
+    }
+
+    .hc-btn {
+        border: none;
+        border-radius: 999px;
+        padding: 13px 22px;
+        font-size: 15px;
+        font-weight: 800;
+        cursor: pointer;
+        width: 100%;
+    }
+    .hc-btn-primary { background-color: #526539; color: #FFFFFF; }
+    .hc-btn-secondary { background-color: #FFFFFF; color: #526539; border: 2px solid #526539; }
+
+    .hc-guest-note {
+        font-size: 13px;
+        color: #8A6300;
+        background-color: #FDF3E2;
+        border: 1px solid #F0D8A0;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 4px;
+    }
+
+    .hc-tip-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background-color: #E7F0DA;
+        border: 1px solid #CADBAF;
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-top: 14px;
+    }
+    .hc-tip-icon { font-size: 22px; }
+    .hc-tip-title { font-weight: 800; color: #33421F; font-size: 14px; }
+    .hc-tip-sub { font-size: 12.5px; color: #6B7A52; }
+</style>
+
+<div class="hc-app">
+    <div class="hc-badge">GAME</div>
+    <div class="hc-title">HEALTHY CATCH</div>
+    <div class="hc-subtitle">Catch the healthy foods!</div>
+
+    <div class="hc-playfield" id="hcPlayfield">
+        <div class="hc-cloud" style="width:70px;height:26px;top:36px;left:20px;"></div>
+        <div class="hc-cloud" style="width:50px;height:20px;top:70px;left:60px;"></div>
+        <div class="hc-cloud" style="width:80px;height:28px;top:90px;right:24px;"></div>
+        <div class="hc-cloud" style="width:54px;height:22px;top:120px;right:60px;"></div>
+
+        <div class="hc-hud">
+            <button class="hc-pill hc-pause-btn" id="hcPauseBtn">⏸</button>
+            <div class="hc-pill">🪙 <span id="hcCoins">0</span></div>
+            <div class="hc-pill">⏱ <span id="hcTimer">01:00</span></div>
+        </div>
+
+        <div class="hc-items-layer" id="hcItemsLayer"></div>
+
+        <div class="hc-cart" id="hcCart">🛒</div>
+
+        <button class="hc-arrow hc-arrow-left" id="hcArrowLeft">←</button>
+        <button class="hc-arrow hc-arrow-right" id="hcArrowRight">→</button>
+
+        <div class="hc-shelf"></div>
+
+        <div class="hc-overlay" id="hcStartOverlay">
+            <div class="hc-overlay-emoji">🛒</div>
+            <div class="hc-overlay-title">Ready to play?</div>
+            <div class="hc-overlay-text">
+                Drag your cart left and right to catch healthy foods and
+                dodge the junk. You've got 60 seconds!
+            </div>
+            <button class="hc-btn hc-btn-primary" id="hcStartBtn">▶ Start New Game</button>
+        </div>
+
+        <div class="hc-overlay" id="hcPauseOverlay" style="display:none;">
+            <div class="hc-overlay-title">⏸ Paused</div>
+            <button class="hc-btn hc-btn-primary" id="hcResumeBtn">▶ Resume</button>
+        </div>
+
+        <div class="hc-overlay" id="hcOverOverlay" style="display:none;">
+            <div class="hc-overlay-emoji">🎉</div>
+            <div class="hc-overlay-title">Round Over!</div>
+            <div class="hc-overlay-score" id="hcOverScore">+0 coins</div>
+            <div class="hc-overlay-buttons" id="hcOverButtons"></div>
+        </div>
+    </div>
+
+    <div class="hc-tip-banner">
+        <span class="hc-tip-icon">🎯</span>
+        <div>
+            <div class="hc-tip-title">Catch healthy foods</div>
+            <div class="hc-tip-sub">Avoid the unhealthy ones!</div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const IS_GUEST = __IS_GUEST__;
+    const HEALTHY = __HEALTHY_JSON__;
+    const UNHEALTHY = __UNHEALTHY_JSON__;
+
+    const playfield = document.getElementById('hcPlayfield');
+    const itemsLayer = document.getElementById('hcItemsLayer');
+    const cart = document.getElementById('hcCart');
+    const coinsEl = document.getElementById('hcCoins');
+    const timerEl = document.getElementById('hcTimer');
+    const startOverlay = document.getElementById('hcStartOverlay');
+    const pauseOverlay = document.getElementById('hcPauseOverlay');
+    const overOverlay = document.getElementById('hcOverOverlay');
+    const overScoreEl = document.getElementById('hcOverScore');
+    const overButtons = document.getElementById('hcOverButtons');
+    const pauseBtn = document.getElementById('hcPauseBtn');
+    const startBtn = document.getElementById('hcStartBtn');
+    const resumeBtn = document.getElementById('hcResumeBtn');
+    const arrowLeft = document.getElementById('hcArrowLeft');
+    const arrowRight = document.getElementById('hcArrowRight');
+
+    const ROUND_SECONDS = 60;
+    const CART_WIDTH = 74;
+    const CART_BOTTOM = 46;
+    const CART_HEIGHT = 64;
+    const ITEM_SIZE = 42;
+
+    let coins = 0;
+    let timeLeft = ROUND_SECONDS;
+    let items = [];
+    let itemIdCounter = 0;
+    let cartX = 0;
+    let running = false;
+    let paused = false;
+    let lastSpawn = 0;
+    let spawnGap = 1100;
+    let rafId = null;
+    let timerId = null;
+    let dragging = false;
+    let lastFrame = null;
+
+    function fieldWidth() { return playfield.clientWidth; }
+    function fieldHeight() { return playfield.clientHeight; }
+
+    function clampCartX(x) {
+        const max = fieldWidth() - CART_WIDTH;
+        return Math.max(0, Math.min(max, x));
+    }
+
+    function setCartX(x) {
+        cartX = clampCartX(x);
+        cart.style.left = cartX + 'px';
+    }
+
+    function centerCart() {
+        setCartX(fieldWidth() / 2 - CART_WIDTH / 2);
+    }
+
+    // ---- Dragging (mouse + touch, via Pointer Events) ----
+    let dragStartClientX = 0;
+    let dragStartCartX = 0;
+
+    cart.addEventListener('pointerdown', function (e) {
+        if (!running || paused) return;
+        dragging = true;
+        dragStartClientX = e.clientX;
+        dragStartCartX = cartX;
+        try { cart.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    playfield.addEventListener('pointermove', function (e) {
+        if (!dragging) return;
+        setCartX(dragStartCartX + (e.clientX - dragStartClientX));
+    });
+    window.addEventListener('pointerup', function () { dragging = false; });
+
+    // Tap/click anywhere in the playfield to move the cart there directly —
+    // makes the cart easy to control even without a precise drag.
+    playfield.addEventListener('pointerdown', function (e) {
+        if (!running || paused) return;
+        if (e.target === cart) return;
+        const rect = playfield.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        setCartX(x - CART_WIDTH / 2);
+    });
+
+    arrowLeft.addEventListener('click', function () {
+        if (!running || paused) return;
+        setCartX(cartX - 55);
+    });
+    arrowRight.addEventListener('click', function () {
+        if (!running || paused) return;
+        setCartX(cartX + 55);
+    });
+
+    // ---- Spawning ----
+    function spawnItem() {
+        const isHealthy = Math.random() < 0.55;
+        const pool = isHealthy ? HEALTHY : UNHEALTHY;
+        const emoji = pool[Math.floor(Math.random() * pool.length)];
+        const x = Math.random() * (fieldWidth() - ITEM_SIZE);
+        const el = document.createElement('div');
+        el.className = 'hc-food';
+        el.style.left = x + 'px';
+        el.style.top = '-56px';
+        el.textContent = emoji;
+        itemsLayer.appendChild(el);
+        items.push({
+            id: itemIdCounter++,
+            el: el,
+            x: x,
+            y: -56,
+            healthy: isHealthy,
+            speed: 55 + Math.random() * 25   // slow-medium fall speed (px/sec)
+        });
+    }
+
+    function showFloatText(x, y, text, cls) {
+        const el = document.createElement('div');
+        el.className = 'hc-float ' + cls;
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.textContent = text;
+        itemsLayer.appendChild(el);
+        setTimeout(function () { el.remove(); }, 700);
+    }
+
+    function updateCoins(delta) {
+        coins += delta;
+        coinsEl.textContent = coins;
+    }
+
+    // ---- Main loop ----
+    function loop(ts) {
+        if (!running || paused) { rafId = null; return; }
+        if (lastFrame === null) lastFrame = ts;
+        const dt = (ts - lastFrame) / 1000;
+        lastFrame = ts;
+
+        if (ts - lastSpawn > spawnGap) {
+            spawnItem();
+            lastSpawn = ts;
+            spawnGap = 850 + Math.random() * 650;
+        }
+
+        const cartTop = fieldHeight() - CART_BOTTOM - CART_HEIGHT;
+        const cartLeft = cartX;
+        const cartRight = cartX + CART_WIDTH;
+
+        for (let i = items.length - 1; i >= 0; i--) {
+            const it = items[i];
+            it.y += it.speed * dt;
+            it.el.style.top = it.y + 'px';
+
+            const itCenterX = it.x + ITEM_SIZE / 2;
+            if (it.y + ITEM_SIZE >= cartTop && it.y < cartTop + 44) {
+                if (itCenterX >= cartLeft - 8 && itCenterX <= cartRight + 8) {
+                    if (it.healthy) {
+                        updateCoins(20);
+                        showFloatText(it.x, it.y, '+20', 'hc-float-good');
+                    } else {
+                        updateCoins(-10);
+                        showFloatText(it.x, it.y, '-10', 'hc-float-bad');
+                    }
+                    it.el.remove();
+                    items.splice(i, 1);
+                    continue;
+                }
+            }
+
+            if (it.y > fieldHeight()) {
+                it.el.remove();
+                items.splice(i, 1);
+            }
+        }
+
+        rafId = requestAnimationFrame(loop);
+    }
+
+    // ---- Timer ----
+    function tick() {
+        if (paused) return;
+        timeLeft -= 1;
+        const mm = String(Math.floor(timeLeft / 60)).padStart(2, '0');
+        const ss = String(timeLeft % 60).padStart(2, '0');
+        timerEl.textContent = mm + ':' + ss;
+        if (timeLeft <= 0) {
+            endGame();
+        }
+    }
+
+    function startGame() {
+        coins = 0;
+        timeLeft = ROUND_SECONDS;
+        coinsEl.textContent = '0';
+        timerEl.textContent = '01:00';
+        items.forEach(function (it) { it.el.remove(); });
+        items = [];
+        running = true;
+        paused = false;
+        lastFrame = null;
+        lastSpawn = 0;
+        centerCart();
+        startOverlay.style.display = 'none';
+        pauseOverlay.style.display = 'none';
+        overOverlay.style.display = 'none';
+        pauseBtn.textContent = '⏸';
+
+        if (timerId) clearInterval(timerId);
+        timerId = setInterval(tick, 1000);
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(loop);
+    }
+
+    function togglePause() {
+        if (!running) return;
+        paused = !paused;
+        if (paused) {
+            pauseOverlay.style.display = 'flex';
+            pauseBtn.textContent = '▶';
+        } else {
+            pauseOverlay.style.display = 'none';
+            pauseBtn.textContent = '⏸';
+            lastFrame = null;
+            rafId = requestAnimationFrame(loop);
+        }
+    }
+
+    function endGame() {
+        running = false;
+        paused = false;
+        clearInterval(timerId);
+        if (rafId) cancelAnimationFrame(rafId);
+
+        const finalCoins = coins;
+        overScoreEl.textContent = (finalCoins >= 0 ? '+' : '') + finalCoins + ' coins';
+        overScoreEl.className = 'hc-overlay-score ' + (finalCoins >= 0 ? 'hc-score-good' : 'hc-score-bad');
+
+        overButtons.innerHTML = '';
+
+        if (!IS_GUEST) {
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'hc-btn hc-btn-primary';
+            saveBtn.textContent = '💾 Save to Account';
+            saveBtn.onclick = function () { saveToAccount(finalCoins); };
+            overButtons.appendChild(saveBtn);
+        } else {
+            const note = document.createElement('div');
+            note.className = 'hc-guest-note';
+            note.textContent = 'Create a free account to save the coins you earn.';
+            overButtons.appendChild(note);
+        }
+
+        const exitBtn = document.createElement('button');
+        exitBtn.className = 'hc-btn hc-btn-secondary';
+        exitBtn.textContent = '🚪 Exit';
+        exitBtn.onclick = exitGame;
+        overButtons.appendChild(exitBtn);
+
+        overOverlay.style.display = 'flex';
+    }
+
+    function exitGame() {
+        overOverlay.style.display = 'none';
+        startOverlay.style.display = 'flex';
+        items.forEach(function (it) { it.el.remove(); });
+        items = [];
+        coins = 0;
+        coinsEl.textContent = '0';
+        timerEl.textContent = '01:00';
+    }
+
+    function saveToAccount(finalCoins) {
+        try {
+            const parentUrl = new URL(window.parent.location.href);
+            parentUrl.searchParams.set('save_game_coins', String(Math.round(finalCoins)));
+            window.parent.location.href = parentUrl.toString();
+        } catch (e) {
+            alert('Could not reach PureBites to save your coins — please try again.');
+        }
+    }
+
+    startBtn.addEventListener('click', startGame);
+    resumeBtn.addEventListener('click', togglePause);
+    pauseBtn.addEventListener('click', togglePause);
+
+    centerCart();
+    window.addEventListener('resize', function () { if (!dragging && !running) centerCart(); });
+})();
+</script>
+"""
+
+with tab_games:
+
+    render_greeting_and_stats()
+
+    if st.session_state.get("game_save_message"):
+        _msg_kind, _msg_text = st.session_state.game_save_message
+        if _msg_kind == "success":
+            st.success(_msg_text)
+        else:
+            st.warning(_msg_text)
+        st.session_state.game_save_message = None
+
+    st.markdown(
+        """
+        <div class="instruction-card">
+            <strong>Healthy Catch</strong> — drag your cart left and right
+            to catch falling foods. Healthy catches earn +20 coins, but
+            letting junk food land in your cart costs you 10. You've got
+            60 seconds per round!
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _healthy_catch_html = (
+        HEALTHY_CATCH_HTML
+        .replace("__IS_GUEST__", "true" if is_guest_user(current_user) else "false")
+        .replace("__HEALTHY_JSON__", json.dumps(HEALTHY_CATCH_HEALTHY_EMOJIS))
+        .replace("__UNHEALTHY_JSON__", json.dumps(HEALTHY_CATCH_UNHEALTHY_EMOJIS))
+    )
+
+    components.html(_healthy_catch_html, height=790, scrolling=False)
+
+    if is_guest_user(current_user):
+        st.caption(
+            "🔒 Playing as a guest — create a free account to save the "
+            "coins you earn."
+        )
+
+
+# ============================================================
 #  PROFILE TAB
 # ============================================================
 
@@ -3330,7 +4039,7 @@ with tab_profile:
         unsafe_allow_html=True,
     )
 
-    prof_col1, prof_col2, prof_col3 = st.columns(3)
+    prof_col1, prof_col2, prof_col3, prof_col4 = st.columns(4)
     with prof_col1:
         st.markdown(
             f"""
@@ -3352,6 +4061,16 @@ with tab_profile:
             unsafe_allow_html=True,
         )
     with prof_col3:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number">🪙 {st.session_state.coins}</div>
+                <div class="stat-label">Coins</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with prof_col4:
         st.markdown(
             f"""
             <div class="stat-card">
@@ -3459,6 +4178,7 @@ with tab_profile:
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
+        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
@@ -3606,6 +4326,7 @@ with st.sidebar:
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
+        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
