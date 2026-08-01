@@ -3919,12 +3919,24 @@ HEALTHY_CATCH_HTML = """
     }
 
     function saveToAccount(finalCoins) {
+        // This game runs inside a sandboxed iframe (that's how
+        // components.html() embeds it), so its JS is allowed to
+        // *navigate* the main PureBites page but not allowed to *read*
+        // the main page's current URL first — reading window.parent's
+        // location throws a cross-origin SecurityError. Assigning a
+        // relative string straight to .href is a write, not a read, so
+        // it's resolved against the parent page's own URL by the
+        // browser and works even though this iframe can't inspect it.
+        const roundedCoins = Math.round(finalCoins);
+        const target = '?save_game_coins=' + encodeURIComponent(String(roundedCoins));
         try {
-            const parentUrl = new URL(window.parent.location.href);
-            parentUrl.searchParams.set('save_game_coins', String(Math.round(finalCoins)));
-            window.parent.location.href = parentUrl.toString();
+            window.top.location.href = target;
         } catch (e) {
-            alert('Could not reach PureBites to save your coins — please try again.');
+            try {
+                window.parent.location.href = target;
+            } catch (e2) {
+                alert('Could not reach PureBites to save your coins — please try again.');
+            }
         }
     }
 
