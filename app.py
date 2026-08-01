@@ -1,5 +1,5 @@
 # ============================================================
-#  SafeBite - Sprint 2
+#  PureBites - Sprint 2
 #  The user selects a product and sees its ingredients,
 #  ingredient warnings, allergy alerts, and can browse a
 #  full Ingredient Dictionary of harmful & healthy ingredients.
@@ -38,7 +38,7 @@ except Exception:
 
 # ---- 0. LOGO IMAGE (base64-encoded so it renders inline) -----
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "safebite_logo.png")
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "purebites_logo.webp")
 
 
 def _get_logo_base64():
@@ -1315,7 +1315,7 @@ def decode_barcode_image(uploaded_photo):
 OPENFOODFACTS_HEADERS = {
     # Open Food Facts asks API clients to identify themselves — requests
     # without a real User-Agent can be throttled or rejected.
-    "User-Agent": "SafeBite-StreamlitApp/1.0 (educational project)"
+    "User-Agent": "PureBites-StreamlitApp/1.0 (educational project)"
 }
 
 
@@ -1834,7 +1834,7 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
 # ---- 3. PAGE SETUP ------------------------------------------
 
 st.set_page_config(
-    page_title="SafeBite",
+    page_title="PureBites",
     page_icon="🌿",
     layout="centered",
 )
@@ -1886,18 +1886,18 @@ st.markdown(
         }
 
         /* Logo */
-        .safebite-logo-wrap {
+        .purebites-logo-wrap {
             display: flex;
             justify-content: center;
             margin-bottom: 0.75rem;
         }
-        .safebite-logo {
+        .purebites-logo {
             width: 170px;
             height: auto;
         }
         /* Smaller logo on narrow / mobile screens */
         @media (max-width: 600px) {
-            .safebite-logo {
+            .purebites-logo {
                 width: 120px;
             }
         }
@@ -2183,7 +2183,7 @@ st.markdown(
                 padding-top: 2rem;
                 padding-bottom: 3.5rem;
             }
-            .safebite-logo { width: 190px; }
+            .purebites-logo { width: 190px; }
             .greeting-card { padding: 1.15rem 1.4rem; }
             .greeting-title { font-size: 1.45rem; }
             .greeting-sub { font-size: 0.98rem; }
@@ -2209,7 +2209,7 @@ st.markdown(
                 padding-top: 2.5rem;
                 padding-bottom: 4rem;
             }
-            .safebite-logo { width: 220px; }
+            .purebites-logo { width: 220px; }
             .greeting-card { padding: 1.3rem 1.6rem; }
             .greeting-title { font-size: 1.7rem; }
             .greeting-sub { font-size: 1.05rem; }
@@ -2235,7 +2235,7 @@ st.markdown(
            loads. It pops in, holds for about two seconds, then
            dissolves away to reveal the app underneath.
         --------------------------------------------------------- */
-        .safebite-splash {
+        .purebites-splash {
             position: fixed;
             inset: 0;
             background-color: #FDF7EF;
@@ -2243,31 +2243,31 @@ st.markdown(
             display: flex;
             align-items: center;
             justify-content: center;
-            animation: safebite-splash-fade-out 0.8s ease forwards;
+            animation: purebites-splash-fade-out 0.8s ease forwards;
             animation-delay: 2s;
         }
-        .safebite-splash-inner {
+        .purebites-splash-inner {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 1.4rem;
-            animation: safebite-splash-pop-in 0.5s ease;
+            animation: purebites-splash-pop-in 0.5s ease;
         }
-        .safebite-splash-logo {
+        .purebites-splash-logo {
             width: min(200px, 42vw);
             height: auto;
         }
-        .safebite-splash-tagline {
+        .purebites-splash-tagline {
             color: #8C9B5D;
             font-size: clamp(0.85rem, 2vw, 1.05rem);
             letter-spacing: 0.02em;
             margin: 0;
         }
-        @keyframes safebite-splash-pop-in {
+        @keyframes purebites-splash-pop-in {
             0% { opacity: 0; transform: translateY(10px) scale(0.96); }
             100% { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @keyframes safebite-splash-fade-out {
+        @keyframes purebites-splash-fade-out {
             0% { opacity: 1; visibility: visible; }
             99% { opacity: 0; visibility: visible; }
             100% { opacity: 0; visibility: hidden; pointer-events: none; }
@@ -2311,7 +2311,7 @@ st.markdown(
         /* Slightly smaller splash elements on narrow phone screens */
         @media (max-width: 420px) {
             .lds-spinner { transform: scale(0.8); }
-            .safebite-splash-inner { gap: 1.1rem; }
+            .purebites-splash-inner { gap: 1.1rem; }
         }
 
         /* Personal allergy warning banner — the first thing shown in a
@@ -2566,25 +2566,25 @@ st.markdown(
 if show_splash:
     if LOGO_BASE64:
         _splash_logo_html = (
-            f'<img class="safebite-splash-logo" '
-            f'src="data:image/png;base64,{LOGO_BASE64}" alt="SafeBite logo">'
+            f'<img class="purebites-splash-logo" '
+            f'src="data:image/webp;base64,{LOGO_BASE64}" alt="PureBites logo">'
         )
     else:
         _splash_logo_html = (
             '<p style="color:#526539; font-size:2rem; font-weight:800;">'
-            '🌿 SafeBite</p>'
+            '🌿 PureBites</p>'
         )
 
     st.markdown(
         f"""
-        <div class="safebite-splash">
-            <div class="safebite-splash-inner">
+        <div class="purebites-splash">
+            <div class="purebites-splash-inner">
                 {_splash_logo_html}
                 <div class="lds-spinner">
                     <div></div><div></div><div></div><div></div>
                     <div></div><div></div><div></div><div></div>
                 </div>
-                <p class="safebite-splash-tagline">Loading your healthier bite…</p>
+                <p class="purebites-splash-tagline">Loading your healthier bite…</p>
             </div>
         </div>
         """,
@@ -2597,8 +2597,8 @@ if show_splash:
 if LOGO_BASE64:
     st.markdown(
         f"""
-        <div class="safebite-logo-wrap">
-            <img class="safebite-logo" src="data:image/png;base64,{LOGO_BASE64}" alt="SafeBite logo">
+        <div class="purebites-logo-wrap">
+            <img class="purebites-logo" src="data:image/webp;base64,{LOGO_BASE64}" alt="PureBites logo">
         </div>
         """,
         unsafe_allow_html=True,
@@ -2607,7 +2607,7 @@ else:
     # Fallback text header in case the logo file isn't found.
     st.markdown(
         '<p style="color:#526539; font-size:2.4rem; font-weight:800; '
-        'text-align:center; margin-bottom:0;">🌿 SafeBite</p>',
+        'text-align:center; margin-bottom:0;">🌿 PureBites</p>',
         unsafe_allow_html=True,
     )
 
@@ -2654,7 +2654,7 @@ def render_auth_page():
     st.markdown(
         """
         <div class="instruction-card">
-            <strong>Welcome to SafeBite!</strong> Log in or create a free
+            <strong>Welcome to PureBites!</strong> Log in or create a free
             account to start scanning ingredients and track your progress.
         </div>
         """,
@@ -3257,7 +3257,7 @@ with tab_allergies:
     )
 
     st.caption(
-        "SafeBite is an educational tool and does not replace professional "
+        "PureBites is an educational tool and does not replace professional "
         "medical advice. If you're ever unsure, treat it as an emergency."
     )
 
@@ -3492,7 +3492,7 @@ with tab_donate:
         <div class="hero-card">
             <div class="hero-title">Support the fight against hunger</div>
             <p class="hero-sub">
-                SafeBite is about helping people eat safely — supporting
+                PureBites is about helping people eat safely — supporting
                 these causes helps make sure people have enough to eat in
                 the first place.
             </p>
@@ -3508,7 +3508,7 @@ with tab_donate:
         st.markdown(
             f"""
             <div class="gofundme-card">
-                <div class="gofundme-card-title">Help SafeBite Give Back</div>
+                <div class="gofundme-card-title">Help PureBites Give Back</div>
                 <div class="gofundme-card-sub">
                     Every contribution helps us keep building tools that
                     keep people safe and support communities in need.
@@ -3524,7 +3524,7 @@ with tab_donate:
         st.markdown(
             """
             <div class="gofundme-card">
-                <div class="gofundme-card-title">Help SafeBite Give Back</div>
+                <div class="gofundme-card-title">Help PureBites Give Back</div>
                 <div class="gofundme-card-sub">
                     Every contribution helps us keep building tools that
                     keep people safe and support communities in need.
@@ -3579,10 +3579,10 @@ with tab_donate:
 
 
 with st.sidebar:
-    st.header("🌿 About SafeBite")
+    st.header("🌿 About PureBites")
 
     st.write(
-        "SafeBite helps people understand the ingredients "
+        "PureBites helps people understand the ingredients "
         "in the foods they eat."
     )
 
@@ -3592,7 +3592,7 @@ with st.sidebar:
     st.write("Product scanning + full Ingredient Dictionary")
 
     st.caption(
-        "SafeBite is an educational tool and should not replace "
+        "PureBites is an educational tool and should not replace "
         "professional medical advice or official product labels."
     )
 
