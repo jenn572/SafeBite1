@@ -1645,6 +1645,40 @@ def compute_health_score(ingredients_list, nutrition):
     return score, matched_harmful, matched_moderate, matched_healthy
 
 
+def classify_ingredient(ingredient_name):
+    """Return 'harmful', 'moderate', or 'healthy' for an ingredient
+    name if it matches something in our dictionary (same
+    case-insensitive, either-direction matching used elsewhere, e.g.
+    "Wheat" matches "Wheat Flour"). Returns None if unclassified."""
+    ing_lower = ingredient_name.lower()
+    for dict_name, data in INGREDIENT_DICTIONARY.items():
+        dict_lower = dict_name.lower()
+        if dict_lower in ing_lower or ing_lower in dict_lower:
+            return data["type"]
+    return None
+
+
+def render_ingredient_card(ingredient_name):
+    """Render one ingredient as a card color-coded the same way as the
+    Dictionary tab: red for harmful, yellow for moderate/semi-harmful,
+    green for healthy. Unclassified ingredients fall back to the
+    plain neutral card style."""
+    kind = classify_ingredient(ingredient_name)
+    if kind == "harmful":
+        css_class, icon = "ingredient-card ingredient-harmful", "⚠️"
+    elif kind == "moderate":
+        css_class, icon = "ingredient-card ingredient-moderate", "🟡"
+    elif kind == "healthy":
+        css_class, icon = "ingredient-card ingredient-healthy", "🌿"
+    else:
+        css_class, icon = "ingredient-card", "🌱"
+
+    st.markdown(
+        f'<div class="{css_class}">{icon} {html.escape(ingredient_name)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_product_scan_result(result, current_user, show_alternatives=True):
     """Render the full result view for one Open Food Facts product:
     personal allergy/dietary warnings, health score, ingredient list,
@@ -1716,10 +1750,7 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
         if result.get("translation_note"):
             st.caption(f"🌐 {result['translation_note']}")
         for ingredient in result["ingredients_list"]:
-            st.markdown(
-                f'<div class="ingredient-card">🌱 {html.escape(ingredient)}</div>',
-                unsafe_allow_html=True,
-            )
+            render_ingredient_card(ingredient)
     else:
         st.caption("No ingredient list was available for this product.")
 
@@ -1969,6 +2000,27 @@ st.markdown(
             border-radius: 10px;
             padding: 0.65rem 0.8rem;
             margin-bottom: 0.5rem;
+        }
+        /* Color-coded variants — same palette as the Dictionary tab's
+           harmful/moderate/healthy cards, so a red/yellow/green
+           ingredient here means the same thing it does there. */
+        .ingredient-card.ingredient-harmful {
+            background-color: #FDECEA;
+            border: 1px solid #F3B9B4;
+            color: #A23B2E;
+            font-weight: 600;
+        }
+        .ingredient-card.ingredient-moderate {
+            background-color: #FDF3E2;
+            border: 1px solid #F0D8A0;
+            color: #8A6300;
+            font-weight: 600;
+        }
+        .ingredient-card.ingredient-healthy {
+            background-color: #EAF3E2;
+            border: 1px solid #BBD9A0;
+            color: #3F6B24;
+            font-weight: 600;
         }
 
         /* Dictionary entry cards */
@@ -2570,40 +2622,49 @@ if st.session_state.auth_user is None:
 current_user = st.session_state.auth_user
 display_name = current_user["name"] or current_user["email"].split("@")[0]
 
-st.markdown(
-    f"""
-    <div class="greeting-card">
-        <div class="greeting-title">Hi, {html.escape(display_name)}! 👋</div>
-        <div class="greeting-sub">You're on your way to stronger, healthier habits.</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
-stat_col1, stat_col2 = st.columns(2)
-with stat_col1:
+def render_greeting_and_stats():
+    """The 'Hi, name!' card plus the scans/streak stat pills. Called at
+    the top of the Scanner and Dictionary tabs (the Profile tab has its
+    own, more detailed version of this) so it appears right under the
+    tab bar rather than above it."""
     st.markdown(
         f"""
-        <div class="stat-card">
-            <div class="stat-number">{st.session_state.scan_count}</div>
-            <div class="stat-label">Scans &middot; Keep it up!</div>
+        <div class="greeting-card">
+            <div class="greeting-title">Hi, {html.escape(display_name)}! 👋</div>
+            <div class="greeting-sub">You're on your way to stronger, healthier habits.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-with stat_col2:
-    st.markdown(
-        f"""
-        <div class="stat-card">
-            <div class="stat-number"><span class="fire-emoji">🔥</span> {st.session_state.streak_count}</div>
-            <div class="stat-label">Day Streak</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    stat_col1, stat_col2 = st.columns(2)
+    with stat_col1:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number">{st.session_state.scan_count}</div>
+                <div class="stat-label">Scans &middot; Keep it up!</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with stat_col2:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-number"><span class="fire-emoji">🔥</span> {st.session_state.streak_count}</div>
+                <div class="stat-label">Day Streak</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # ---- 6. TOP NAVIGATION ---------------------------------------
+# The tab bar now sits directly under the logo, above the greeting
+# card and stats — so navigation is always the first thing visible,
+# on every screen size, without needing to scroll past the stats.
 
 tab_scan, tab_dictionary, tab_profile = st.tabs(
     ["🔍  Scanner", "📖  Dictionary", "👤  Profile"]
@@ -2615,6 +2676,8 @@ tab_scan, tab_dictionary, tab_profile = st.tabs(
 # ============================================================
 
 with tab_scan:
+
+    render_greeting_and_stats()
 
     st.markdown(
         """
@@ -2802,10 +2865,7 @@ with tab_scan:
         st.write("#### Ingredients")
 
         for ingredient in ingredients:
-            st.markdown(
-                f'<div class="ingredient-card">🌱 {ingredient}</div>',
-                unsafe_allow_html=True,
-            )
+            render_ingredient_card(ingredient)
 
         st.write("")
 
@@ -2853,6 +2913,8 @@ with tab_scan:
 # ============================================================
 
 with tab_dictionary:
+
+    render_greeting_and_stats()
 
     st.markdown(
         """
