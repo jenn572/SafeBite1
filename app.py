@@ -2401,6 +2401,78 @@ st.markdown(
         div[data-testid="InputInstructions"] {
             display: none;
         }
+
+        /* ---- Allergies page ---- */
+
+        /* Quick-tip callout card */
+        .tip-card {
+            background-color: #FDF3E2;
+            border: 1px solid #F0D8A0;
+            color: #6B4E00;
+            border-radius: 16px;
+            padding: 1rem 1.2rem;
+            margin-bottom: 1.2rem;
+            font-size: 0.92rem;
+            line-height: 1.5;
+        }
+        .tip-card strong {
+            color: #8A6300;
+        }
+
+        /* Click-to-play YouTube preview */
+        .video-preview-wrap {
+            position: relative;
+            width: 100%;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 1.2rem;
+            box-shadow: 0 2px 10px rgba(82, 101, 57, 0.12);
+            cursor: pointer;
+        }
+        .video-preview-wrap img {
+            width: 100%;
+            display: block;
+        }
+        .video-play-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 68px;
+            height: 68px;
+            background-color: rgba(82, 101, 57, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-play-button::after {
+            content: "";
+            border-style: solid;
+            border-width: 12px 0 12px 20px;
+            border-color: transparent transparent transparent #FFFFFF;
+            margin-left: 5px;
+        }
+
+        /* Emergency resources */
+        .emergency-card {
+            background-color: #FBEAEA;
+            border: 1px solid #E8B4B4;
+            border-radius: 16px;
+            padding: 1rem 1.2rem;
+            margin-bottom: 0.8rem;
+        }
+        .emergency-card-title {
+            color: #963A3A;
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.3rem;
+        }
+        .emergency-card-body {
+            color: #6E2C2C;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -2666,8 +2738,8 @@ def render_greeting_and_stats():
 # card and stats — so navigation is always the first thing visible,
 # on every screen size, without needing to scroll past the stats.
 
-tab_scan, tab_dictionary, tab_profile = st.tabs(
-    ["🔍  Scanner", "📖  Dictionary", "👤  Profile"]
+tab_scan, tab_dictionary, tab_allergies, tab_profile = st.tabs(
+    ["🔍  Scanner", "📖  Dictionary", "🚨  Allergies", "👤  Profile"]
 )
 
 
@@ -2980,6 +3052,135 @@ with tab_dictionary:
             """,
             unsafe_allow_html=True,
         )
+
+
+# ============================================================
+#  ALLERGIES TAB
+# ============================================================
+
+YOUTUBE_VIDEO_ID = "9ZBCIVpFYgM"
+
+with tab_allergies:
+
+    render_greeting_and_stats()
+
+    st.markdown(
+        """
+        <div class="hero-card">
+            <div class="hero-title">Understanding allergic reactions</div>
+            <p class="hero-sub">
+                An allergic reaction starts when your immune system mistakes
+                a harmless substance — like a food protein — for a threat.
+                It releases chemicals such as histamine, which can trigger
+                symptoms like hives, itching, swelling, an upset stomach, or
+                trouble breathing within minutes to a couple of hours of
+                exposure. Reactions can stay mild or escalate quickly into
+                anaphylaxis, a severe, life-threatening reaction — so it's
+                important to know what to watch for and act fast.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ---- Quick tip ----
+    st.markdown('<p class="section-title">⚡ Quick Tip</p>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="tip-card">
+            <strong>If someone is having an allergic reaction:</strong>
+            Stay calm and watch closely for signs it's getting worse
+            (swelling of the lips/tongue/throat, trouble breathing,
+            dizziness, or hives spreading). If they have a prescribed
+            epinephrine auto-injector (EpiPen), use it right away —
+            don't wait to see if symptoms improve on their own.
+            Epinephrine is the only medication that can stop a severe
+            reaction from progressing, and using it early is always
+            safer than waiting.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ---- Click-to-play YouTube video ----
+    st.markdown('<p class="section-title">🎥 What to Do — Video Guide</p>', unsafe_allow_html=True)
+
+    if "allergies_video_playing" not in st.session_state:
+        st.session_state.allergies_video_playing = False
+
+    if st.session_state.allergies_video_playing:
+        st.video(f"https://youtu.be/{YOUTUBE_VIDEO_ID}")
+        if st.button("← Back to preview", key="allergies_video_close"):
+            st.session_state.allergies_video_playing = False
+            st.rerun()
+    else:
+        st.markdown(
+            f"""
+            <div class="video-preview-wrap">
+                <img src="https://img.youtube.com/vi/{YOUTUBE_VIDEO_ID}/hqdefault.jpg" alt="Video preview">
+                <div class="video-play-button"></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("▶  Play Video", key="allergies_video_play", type="primary"):
+            st.session_state.allergies_video_playing = True
+            st.rerun()
+
+    st.write("")
+
+    # ---- Emergency resources ----
+    st.markdown('<p class="section-title">🚨 If It Gets Worse</p>', unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class="emergency-card">
+            <div class="emergency-card-title">📞 Call Emergency Services</div>
+            <div class="emergency-card-body">
+                In the US, call <strong>911</strong> immediately if you see
+                signs of a severe reaction (anaphylaxis) — swelling of the
+                face/throat, trouble breathing or swallowing, a rapid or
+                weak pulse, dizziness, or fainting. Outside the US, call
+                your local emergency number. Do this even after using an
+                EpiPen — epinephrine can wear off, and a second reaction
+                can follow.
+            </div>
+        </div>
+        <div class="emergency-card">
+            <div class="emergency-card-title">💉 Use Epinephrine First</div>
+            <div class="emergency-card-body">
+                If a person has a prescribed auto-injector, use it right
+                away for any signs of a severe reaction — it's always
+                better to use it too early than too late. A second dose
+                can be given after about 5–15 minutes if symptoms haven't
+                improved and more is available.
+            </div>
+        </div>
+        <div class="emergency-card">
+            <div class="emergency-card-title">🧍 While You Wait for Help</div>
+            <div class="emergency-card-body">
+                Help the person lie down and raise their legs, unless
+                they're having trouble breathing or vomiting, in which
+                case let them sit up or lie on their side. Loosen tight
+                clothing, stay with them, and don't leave them alone.
+            </div>
+        </div>
+        <div class="emergency-card">
+            <div class="emergency-card-title">☎️ Poison Control (US)</div>
+            <div class="emergency-card-body">
+                For non-emergency questions about an ingredient or
+                exposure, contact Poison Control at
+                <strong>1-800-222-1222</strong>.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.caption(
+        "SafeBite is an educational tool and does not replace professional "
+        "medical advice. If you're ever unsure, treat it as an emergency."
+    )
 
 
 # ============================================================
