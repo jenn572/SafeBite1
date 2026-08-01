@@ -165,7 +165,14 @@ def get_user(email):
     row = cur.fetchone()
     cur.close()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    user = dict(row)
+    # Belt-and-suspenders: if this row was fetched before the "coins"
+    # column migration finished applying (e.g. right after a deploy),
+    # default it here instead of letting callers KeyError on it.
+    user.setdefault("coins", 0)
+    return user
 
 
 def create_user(email, password, name):
@@ -2705,7 +2712,7 @@ def render_auth_page():
                     st.session_state.auth_user = user
                     st.session_state.scan_count = user["scan_count"]
                     st.session_state.streak_count = user["streak_count"]
-                    st.session_state.coins = user["coins"] or 0
+                    st.session_state.coins = user.get("coins") or 0
                     st.session_state.last_result = None
                     st.session_state.pop("allergy_select", None)
                     st.session_state.pop("dietary_select", None)
@@ -2756,7 +2763,7 @@ def render_auth_page():
                 st.session_state.auth_user = user
                 st.session_state.scan_count = user["scan_count"]
                 st.session_state.streak_count = user["streak_count"]
-                st.session_state.coins = user["coins"] or 0
+                st.session_state.coins = user.get("coins") or 0
                 st.session_state.last_result = None
                 st.session_state.pop("allergy_select", None)
                 st.session_state.pop("dietary_select", None)
