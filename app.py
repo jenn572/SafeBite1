@@ -99,7 +99,6 @@ def init_db():
             allergies TEXT DEFAULT '[]',
             dietary_restrictions TEXT DEFAULT '[]',
             profile_picture TEXT,
-            coins INTEGER DEFAULT 0,
             created_at TEXT NOT NULL
         )
         """
@@ -112,7 +111,6 @@ def init_db():
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS allergies TEXT DEFAULT '[]'")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS dietary_restrictions TEXT DEFAULT '[]'")
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT")
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS coins INTEGER DEFAULT 0")
     conn.commit()
     cur.close()
     conn.close()
@@ -167,12 +165,7 @@ def get_user(email):
     conn.close()
     if not row:
         return None
-    user = dict(row)
-    # Belt-and-suspenders: if this row was fetched before the "coins"
-    # column migration finished applying (e.g. right after a deploy),
-    # default it here instead of letting callers KeyError on it.
-    user.setdefault("coins", 0)
-    return user
+    return dict(row)
 
 
 def create_user(email, password, name):
@@ -250,18 +243,6 @@ def update_scan_count(email, new_count):
     cur.execute(
         "UPDATE users SET scan_count = %s WHERE email = %s",
         (new_count, email.strip().lower()),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def update_coins(email, new_total):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET coins = %s WHERE email = %s",
-        (new_total, email.strip().lower()),
     )
     conn.commit()
     cur.close()
@@ -1870,9 +1851,6 @@ if "scan_count" not in st.session_state:
 if "streak_count" not in st.session_state:
     st.session_state.streak_count = 0
 
-if "coins" not in st.session_state:
-    st.session_state.coins = 0
-
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
@@ -2662,7 +2640,6 @@ def make_guest_user():
         "password_hash": None,
         "scan_count": STARTING_SCAN_COUNT,
         "streak_count": 0,
-        "coins": 0,
         "last_login_date": None,
         "allergies": "[]",
         "dietary_restrictions": "[]",
@@ -2712,7 +2689,6 @@ def render_auth_page():
                     st.session_state.auth_user = user
                     st.session_state.scan_count = user["scan_count"]
                     st.session_state.streak_count = user["streak_count"]
-                    st.session_state.coins = user.get("coins") or 0
                     st.session_state.last_result = None
                     st.session_state.pop("allergy_select", None)
                     st.session_state.pop("dietary_select", None)
@@ -2763,7 +2739,6 @@ def render_auth_page():
                 st.session_state.auth_user = user
                 st.session_state.scan_count = user["scan_count"]
                 st.session_state.streak_count = user["streak_count"]
-                st.session_state.coins = user.get("coins") or 0
                 st.session_state.last_result = None
                 st.session_state.pop("allergy_select", None)
                 st.session_state.pop("dietary_select", None)
@@ -2781,7 +2756,6 @@ def render_auth_page():
         st.session_state.auth_user = make_guest_user()
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
-        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
@@ -2801,49 +2775,6 @@ if st.session_state.auth_user is None:
 
 current_user = st.session_state.auth_user
 display_name = current_user["name"] or current_user["email"].split("@")[0]
-
-
-# ---- 5.6 HEALTHY CATCH — SAVE COINS ROUND TRIP -----------------
-# The Healthy Catch game runs entirely inside an embedded HTML/JS
-# component (its own iframe), so it can't call Python functions or
-# touch st.session_state directly. When the player taps "Save to
-# Account," the component's JS navigates the *parent* page (this
-# Streamlit app) to a URL with the round's coin total attached as a
-# query parameter. That triggers a normal Streamlit rerun, and this
-# block is what picks the value up, credits the account, and clears
-# the parameter so it can't be replayed by refreshing or re-sharing
-# the URL.
-GAME_ROUND_MIN_COINS = -600
-GAME_ROUND_MAX_COINS = 1200
-
-if "save_game_coins" in st.query_params:
-    _raw_round_coins = st.query_params.get("save_game_coins")
-    try:
-        _round_coins = int(_raw_round_coins)
-    except (TypeError, ValueError):
-        _round_coins = None
-
-    if _round_coins is not None:
-        _round_coins = max(GAME_ROUND_MIN_COINS, min(GAME_ROUND_MAX_COINS, _round_coins))
-        if is_guest_user(current_user):
-            st.session_state.game_save_message = (
-                "warning",
-                "Guest sessions can't save coins — create a free account "
-                "first so your progress sticks around.",
-            )
-        else:
-            _new_total = max(0, st.session_state.coins + _round_coins)
-            update_coins(current_user["email"], _new_total)
-            st.session_state.coins = _new_total
-            current_user["coins"] = _new_total
-            st.session_state.auth_user = current_user
-            st.session_state.game_save_message = (
-                "success",
-                f"Saved! You now have {_new_total} coins.",
-            )
-
-    st.query_params.clear()
-    st.rerun()
 
 
 def render_greeting_and_stats():
@@ -3535,13 +3466,42 @@ HEALTHY_CATCH_HTML = """
         max-width: 300px;
     }
 
-    .hc-overlay-score {
-        font-size: 32px;
-        font-weight: 900;
-        margin-bottom: 20px;
+    .hc-overlay-summary {
+        display: flex;
+        gap: 18px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+        justify-content: center;
     }
-    .hc-score-good { color: #2F7D32; }
-    .hc-score-bad { color: #B23A3A; }
+    .hc-summary-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    .hc-summary-count {
+        font-size: 26px;
+        font-weight: 900;
+    }
+    .hc-summary-count.hc-count-good { color: #2F7D32; }
+    .hc-summary-count.hc-count-bad { color: #B23A3A; }
+    .hc-summary-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: #6B7A52;
+    }
+
+    .hc-overlay-fact {
+        background-color: #EFF6E5;
+        border: 1px solid #CADBAF;
+        border-radius: 14px;
+        padding: 12px 14px;
+        font-size: 13px;
+        line-height: 1.45;
+        color: #33421F;
+        margin-bottom: 20px;
+        max-width: 320px;
+    }
 
     .hc-overlay-buttons {
         display: flex;
@@ -3562,16 +3522,6 @@ HEALTHY_CATCH_HTML = """
     }
     .hc-btn-primary { background-color: #526539; color: #FFFFFF; }
     .hc-btn-secondary { background-color: #FFFFFF; color: #526539; border: 2px solid #526539; }
-
-    .hc-guest-note {
-        font-size: 13px;
-        color: #8A6300;
-        background-color: #FDF3E2;
-        border: 1px solid #F0D8A0;
-        border-radius: 12px;
-        padding: 10px 12px;
-        margin-bottom: 4px;
-    }
 
     .hc-tip-banner {
         display: flex;
@@ -3601,7 +3551,7 @@ HEALTHY_CATCH_HTML = """
 
         <div class="hc-hud">
             <button class="hc-pill hc-pause-btn" id="hcPauseBtn">⏸</button>
-            <div class="hc-pill">🪙 <span id="hcCoins">0</span></div>
+            <div class="hc-pill">🍎 <span id="hcHealthyCount">0</span> &middot; 🍩 <span id="hcUnhealthyCount">0</span></div>
             <div class="hc-pill">⏱ <span id="hcTimer">01:00</span></div>
         </div>
 
@@ -3632,7 +3582,8 @@ HEALTHY_CATCH_HTML = """
         <div class="hc-overlay" id="hcOverOverlay" style="display:none;">
             <div class="hc-overlay-emoji">🎉</div>
             <div class="hc-overlay-title">Round Over!</div>
-            <div class="hc-overlay-score" id="hcOverScore">+0 coins</div>
+            <div class="hc-overlay-summary" id="hcOverSummary"></div>
+            <div class="hc-overlay-fact" id="hcOverFact"></div>
             <div class="hc-overlay-buttons" id="hcOverButtons"></div>
         </div>
     </div>
@@ -3648,19 +3599,41 @@ HEALTHY_CATCH_HTML = """
 
 <script>
 (function () {
-    const IS_GUEST = __IS_GUEST__;
     const HEALTHY = __HEALTHY_JSON__;
     const UNHEALTHY = __UNHEALTHY_JSON__;
+
+    // Facts about how healthy vs. unhealthy foods affect the body over
+    // the long term — one is shown after each round, cycling through
+    // the list in order (via roundsPlayed below) so a player doesn't
+    // see the same fact twice in a row.
+    const FACTS = [
+        "Fruits and vegetables are packed with fiber, vitamins, and antioxidants that lower long-term risk of heart disease — while regularly eating sugary, fried foods raises that risk over time.",
+        "Whole foods like fruit and veggies give you steady, lasting energy. Foods high in added sugar cause quick energy spikes followed by crashes that leave you more tired.",
+        "A diet rich in produce supports a healthy gut microbiome, which affects digestion, immunity, and even mood — while heavily processed foods tend to disrupt it.",
+        "Vegetables and fruit help maintain healthy blood sugar levels over time, while frequent sugary snacks and drinks are linked to a higher long-term risk of type 2 diabetes.",
+        "Antioxidants in colorful fruits and vegetables help protect your cells from damage that builds up over years — a protection processed, sugary foods don't offer.",
+        "Eating plenty of fruits and vegetables is linked to better long-term brain health, while diets high in processed and fried foods are linked to faster cognitive decline.",
+    ];
+
+    let roundsPlayed = 0;
+
+    function nextFact() {
+        const fact = FACTS[roundsPlayed % FACTS.length];
+        roundsPlayed += 1;
+        return fact;
+    }
 
     const playfield = document.getElementById('hcPlayfield');
     const itemsLayer = document.getElementById('hcItemsLayer');
     const cart = document.getElementById('hcCart');
-    const coinsEl = document.getElementById('hcCoins');
+    const healthyCountEl = document.getElementById('hcHealthyCount');
+    const unhealthyCountEl = document.getElementById('hcUnhealthyCount');
     const timerEl = document.getElementById('hcTimer');
     const startOverlay = document.getElementById('hcStartOverlay');
     const pauseOverlay = document.getElementById('hcPauseOverlay');
     const overOverlay = document.getElementById('hcOverOverlay');
-    const overScoreEl = document.getElementById('hcOverScore');
+    const overSummaryEl = document.getElementById('hcOverSummary');
+    const overFactEl = document.getElementById('hcOverFact');
     const overButtons = document.getElementById('hcOverButtons');
     const pauseBtn = document.getElementById('hcPauseBtn');
     const startBtn = document.getElementById('hcStartBtn');
@@ -3674,7 +3647,8 @@ HEALTHY_CATCH_HTML = """
     const CART_HEIGHT = 64;
     const ITEM_SIZE = 42;
 
-    let coins = 0;
+    let healthyCaught = 0;
+    let unhealthyCaught = 0;
     let timeLeft = ROUND_SECONDS;
     let items = [];
     let itemIdCounter = 0;
@@ -3773,9 +3747,14 @@ HEALTHY_CATCH_HTML = """
         setTimeout(function () { el.remove(); }, 700);
     }
 
-    function updateCoins(delta) {
-        coins += delta;
-        coinsEl.textContent = coins;
+    function updateCounts(isHealthy) {
+        if (isHealthy) {
+            healthyCaught += 1;
+            healthyCountEl.textContent = healthyCaught;
+        } else {
+            unhealthyCaught += 1;
+            unhealthyCountEl.textContent = unhealthyCaught;
+        }
     }
 
     // ---- Main loop ----
@@ -3804,11 +3783,11 @@ HEALTHY_CATCH_HTML = """
             if (it.y + ITEM_SIZE >= cartTop && it.y < cartTop + 44) {
                 if (itCenterX >= cartLeft - 8 && itCenterX <= cartRight + 8) {
                     if (it.healthy) {
-                        updateCoins(20);
-                        showFloatText(it.x, it.y, '+20', 'hc-float-good');
+                        updateCounts(true);
+                        showFloatText(it.x, it.y, '+1', 'hc-float-good');
                     } else {
-                        updateCoins(-10);
-                        showFloatText(it.x, it.y, '-10', 'hc-float-bad');
+                        updateCounts(false);
+                        showFloatText(it.x, it.y, '+1', 'hc-float-bad');
                     }
                     it.el.remove();
                     items.splice(i, 1);
@@ -3838,9 +3817,11 @@ HEALTHY_CATCH_HTML = """
     }
 
     function startGame() {
-        coins = 0;
+        healthyCaught = 0;
+        unhealthyCaught = 0;
         timeLeft = ROUND_SECONDS;
-        coinsEl.textContent = '0';
+        healthyCountEl.textContent = '0';
+        unhealthyCountEl.textContent = '0';
         timerEl.textContent = '01:00';
         items.forEach(function (it) { it.el.remove(); });
         items = [];
@@ -3880,24 +3861,25 @@ HEALTHY_CATCH_HTML = """
         clearInterval(timerId);
         if (rafId) cancelAnimationFrame(rafId);
 
-        const finalCoins = coins;
-        overScoreEl.textContent = (finalCoins >= 0 ? '+' : '') + finalCoins + ' coins';
-        overScoreEl.className = 'hc-overlay-score ' + (finalCoins >= 0 ? 'hc-score-good' : 'hc-score-bad');
+        overSummaryEl.innerHTML =
+            '<div class="hc-summary-item">' +
+                '<div class="hc-summary-count hc-count-good">🍎 ' + healthyCaught + '</div>' +
+                '<div class="hc-summary-label">Healthy caught</div>' +
+            '</div>' +
+            '<div class="hc-summary-item">' +
+                '<div class="hc-summary-count hc-count-bad">🍩 ' + unhealthyCaught + '</div>' +
+                '<div class="hc-summary-label">Unhealthy caught</div>' +
+            '</div>';
+
+        overFactEl.textContent = '💡 ' + nextFact();
 
         overButtons.innerHTML = '';
 
-        if (!IS_GUEST) {
-            const saveBtn = document.createElement('button');
-            saveBtn.className = 'hc-btn hc-btn-primary';
-            saveBtn.textContent = '💾 Save to Account';
-            saveBtn.onclick = function () { saveToAccount(finalCoins); };
-            overButtons.appendChild(saveBtn);
-        } else {
-            const note = document.createElement('div');
-            note.className = 'hc-guest-note';
-            note.textContent = 'Create a free account to save the coins you earn.';
-            overButtons.appendChild(note);
-        }
+        const playAgainBtn = document.createElement('button');
+        playAgainBtn.className = 'hc-btn hc-btn-primary';
+        playAgainBtn.textContent = '🔄 Play Again';
+        playAgainBtn.onclick = startGame;
+        overButtons.appendChild(playAgainBtn);
 
         const exitBtn = document.createElement('button');
         exitBtn.className = 'hc-btn hc-btn-secondary';
@@ -3913,31 +3895,11 @@ HEALTHY_CATCH_HTML = """
         startOverlay.style.display = 'flex';
         items.forEach(function (it) { it.el.remove(); });
         items = [];
-        coins = 0;
-        coinsEl.textContent = '0';
+        healthyCaught = 0;
+        unhealthyCaught = 0;
+        healthyCountEl.textContent = '0';
+        unhealthyCountEl.textContent = '0';
         timerEl.textContent = '01:00';
-    }
-
-    function saveToAccount(finalCoins) {
-        // This game runs inside a sandboxed iframe (that's how
-        // components.html() embeds it), so its JS is allowed to
-        // *navigate* the main PureBites page but not allowed to *read*
-        // the main page's current URL first — reading window.parent's
-        // location throws a cross-origin SecurityError. Assigning a
-        // relative string straight to .href is a write, not a read, so
-        // it's resolved against the parent page's own URL by the
-        // browser and works even though this iframe can't inspect it.
-        const roundedCoins = Math.round(finalCoins);
-        const target = '?save_game_coins=' + encodeURIComponent(String(roundedCoins));
-        try {
-            window.top.location.href = target;
-        } catch (e) {
-            try {
-                window.parent.location.href = target;
-            } catch (e2) {
-                alert('Could not reach PureBites to save your coins — please try again.');
-            }
-        }
     }
 
     startBtn.addEventListener('click', startGame);
@@ -3954,21 +3916,13 @@ with tab_games:
 
     render_greeting_and_stats()
 
-    if st.session_state.get("game_save_message"):
-        _msg_kind, _msg_text = st.session_state.game_save_message
-        if _msg_kind == "success":
-            st.success(_msg_text)
-        else:
-            st.warning(_msg_text)
-        st.session_state.game_save_message = None
-
     st.markdown(
         """
         <div class="instruction-card">
             <strong>Healthy Catch</strong> — drag your cart left and right
-            to catch falling foods. Healthy catches earn +20 coins, but
-            letting junk food land in your cart costs you 10. You've got
-            60 seconds per round!
+            to catch falling foods. Try to catch the healthy foods and
+            dodge the junk! You've got 60 seconds per round, then you'll
+            see how many of each you caught.
         </div>
         """,
         unsafe_allow_html=True,
@@ -3976,18 +3930,11 @@ with tab_games:
 
     _healthy_catch_html = (
         HEALTHY_CATCH_HTML
-        .replace("__IS_GUEST__", "true" if is_guest_user(current_user) else "false")
         .replace("__HEALTHY_JSON__", json.dumps(HEALTHY_CATCH_HEALTHY_EMOJIS))
         .replace("__UNHEALTHY_JSON__", json.dumps(HEALTHY_CATCH_UNHEALTHY_EMOJIS))
     )
 
     components.html(_healthy_catch_html, height=790, scrolling=False)
-
-    if is_guest_user(current_user):
-        st.caption(
-            "🔒 Playing as a guest — create a free account to save the "
-            "coins you earn."
-        )
 
 
 # ============================================================
@@ -4058,7 +4005,7 @@ with tab_profile:
         unsafe_allow_html=True,
     )
 
-    prof_col1, prof_col2, prof_col3, prof_col4 = st.columns(4)
+    prof_col1, prof_col2, prof_col3 = st.columns(3)
     with prof_col1:
         st.markdown(
             f"""
@@ -4080,16 +4027,6 @@ with tab_profile:
             unsafe_allow_html=True,
         )
     with prof_col3:
-        st.markdown(
-            f"""
-            <div class="stat-card">
-                <div class="stat-number">🪙 {st.session_state.coins}</div>
-                <div class="stat-label">Coins</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with prof_col4:
         st.markdown(
             f"""
             <div class="stat-card">
@@ -4197,7 +4134,6 @@ with tab_profile:
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
-        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
@@ -4345,7 +4281,6 @@ with st.sidebar:
         st.session_state.auth_user = None
         st.session_state.scan_count = STARTING_SCAN_COUNT
         st.session_state.streak_count = 0
-        st.session_state.coins = 0
         st.session_state.last_result = None
         st.session_state.pop("allergy_select", None)
         st.session_state.pop("dietary_select", None)
