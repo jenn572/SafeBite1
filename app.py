@@ -3054,7 +3054,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-render_ai_helper()
+# NOTE: render_ai_helper() is called further down (search "render_ai_helper()"),
+# after current_user / is_guest_user are defined — it needs those to exist.
 
 
 # ---- 4.5 SPLASH SCREEN -----------------------------------------
@@ -3271,6 +3272,8 @@ if st.session_state.auth_user is None:
 
 current_user = st.session_state.auth_user
 display_name = current_user["name"] or current_user["email"].split("@")[0]
+
+render_ai_helper()
 
 
 def render_greeting_and_stats():
