@@ -1988,6 +1988,12 @@ st.markdown(
             max-width: 480px;
             padding-top: 1.5rem;
             padding-bottom: 3rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            /* Room for the fixed ad sidebar (84px wide on phones) plus
+               a breathing gap, so page content never sits flush
+               against the ads. */
+            margin-right: 100px;
         }
 
         /* Logo */
@@ -2287,6 +2293,10 @@ st.markdown(
                 max-width: 640px;
                 padding-top: 2rem;
                 padding-bottom: 3.5rem;
+                padding-left: 1.5rem;
+                padding-right: 1.5rem;
+                /* ad sidebar grows to 130px at this size, plus gap */
+                margin-right: 155px;
             }
             .purebites-logo { width: 190px; }
             .greeting-card { padding: 1.15rem 1.4rem; }
@@ -2313,6 +2323,10 @@ st.markdown(
                 max-width: 860px;
                 padding-top: 2.5rem;
                 padding-bottom: 4rem;
+                padding-left: 1.75rem;
+                padding-right: 1.75rem;
+                /* ad sidebar grows to 175px at this size, plus gap */
+                margin-right: 205px;
             }
             .purebites-logo { width: 220px; }
             .greeting-card { padding: 1.3rem 1.6rem; }
@@ -2332,6 +2346,16 @@ st.markdown(
             .dict-explanation { font-size: 0.95rem; }
             .dict-concern { font-size: 0.92rem; }
             .stButton > button { font-size: 1.02rem; padding: 0.8rem 1.1rem; }
+        }
+
+        /* Wide desktop — ad sidebar is at its full 220px size here, so
+           content gets extra room to keep the same comfortable gap. */
+        @media (min-width: 1300px) {
+            .block-container {
+                padding-left: 2rem;
+                padding-right: 2rem;
+                margin-right: 255px;
+            }
         }
 
         /* ---------------------------------------------------------
@@ -2666,34 +2690,37 @@ st.markdown(
            built-in "collapse" control, so it can't be closed. It's
            rendered once outside of st.tabs(), so it stays put no
            matter which tab is active.
+
+           It's visible at every screen size, just resized — narrow
+           and icon-only on phones, wider with a title on desktop —
+           and .block-container gets a matching margin-right (set
+           alongside each breakpoint above) so page content always
+           keeps a comfortable gap from it instead of butting up
+           against it.
         --------------------------------------------------------- */
         .purebites-ad-sidebar {
             position: fixed;
             top: 0;
             right: 0;
-            width: 230px;
+            width: 84px;
             height: 100vh;
             background-color: #DCE4C9;
-            padding: 1.75rem 1rem 1rem 1rem;
+            padding: 1rem 0.5rem;
             overflow-y: auto;
             z-index: 998;
             box-shadow: -2px 0 10px rgba(82, 101, 57, 0.1);
         }
         .purebites-ad-sidebar-title {
-            color: #33421F;
-            font-weight: 700;
-            font-size: 0.95rem;
-            margin-bottom: 1.1rem;
-            text-align: center;
-            letter-spacing: 0.02em;
+            /* No room for a title on phones — icon/logo ads only */
+            display: none;
         }
         .purebites-ad-card {
             display: block;
             background-color: #FFFFFF;
-            border-radius: 16px;
+            border-radius: 10px;
             overflow: hidden;
-            margin-bottom: 1.25rem;
-            box-shadow: 0 2px 10px rgba(82, 101, 57, 0.1);
+            margin-bottom: 0.6rem;
+            box-shadow: 0 2px 8px rgba(82, 101, 57, 0.1);
             text-decoration: none;
             transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
@@ -2705,14 +2732,53 @@ st.markdown(
             width: 100%;
             display: block;
         }
-        /* Only show the ad sidebar on wide desktop screens — the
-           centered app layout leaves empty space there to use.  On
-           tablets/phones there's no spare room, so it's hidden rather
-           than covering the app (matching how Streamlit's own sidebar
-           auto-collapses on narrow screens). */
-        @media (max-width: 1300px) {
+
+        /* Small tablets / large phones */
+        @media (min-width: 600px) {
             .purebites-ad-sidebar {
-                display: none;
+                width: 120px;
+                padding: 1.25rem 0.65rem;
+            }
+            .purebites-ad-card {
+                border-radius: 12px;
+                margin-bottom: 0.85rem;
+            }
+        }
+
+        /* Tablets / small laptops — enough room for the title again */
+        @media (min-width: 1024px) {
+            .purebites-ad-sidebar {
+                width: 175px;
+                padding: 1.5rem 0.85rem;
+            }
+            .purebites-ad-sidebar-title {
+                display: block;
+                color: #33421F;
+                font-weight: 700;
+                font-size: 0.82rem;
+                margin-bottom: 1rem;
+                text-align: center;
+                letter-spacing: 0.02em;
+            }
+            .purebites-ad-card {
+                border-radius: 14px;
+                margin-bottom: 1rem;
+            }
+        }
+
+        /* Wide desktop — full size */
+        @media (min-width: 1300px) {
+            .purebites-ad-sidebar {
+                width: 220px;
+                padding: 1.75rem 1rem;
+            }
+            .purebites-ad-sidebar-title {
+                font-size: 0.95rem;
+                margin-bottom: 1.1rem;
+            }
+            .purebites-ad-card {
+                border-radius: 16px;
+                margin-bottom: 1.25rem;
             }
         }
     </style>
