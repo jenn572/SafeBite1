@@ -203,7 +203,17 @@ def ask_ai_helper(question, user_context=""):
         resp.raise_for_status()
         data = resp.json()
         return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception:
+    except requests.exceptions.HTTPError:
+        # Log the response body (Google's actual error message, e.g. bad
+        # key, region-blocked, model not found) to Streamlit Cloud's app
+        # logs, viewable via "Manage app" — without exposing it to users.
+        print(f"[ai_helper] Gemini HTTP error {resp.status_code}: {resp.text}")
+        return (
+            "Sorry, I couldn't get an answer just now — please try "
+            "again in a moment."
+        )
+    except Exception as e:
+        print(f"[ai_helper] Gemini request failed: {type(e).__name__}: {e}")
         return (
             "Sorry, I couldn't get an answer just now — please try "
             "again in a moment."
