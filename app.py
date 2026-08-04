@@ -1999,13 +1999,14 @@ st.markdown(
         .block-container {
             max-width: 480px;
             padding-top: 1.5rem;
-            padding-bottom: 3rem;
+            /* On phones the ad partners live in a slim bar docked to
+               the bottom of the screen (see .purebites-ad-sidebar
+               below), so we reserve space at the bottom instead of
+               the right — this keeps every tab's content, including
+               the tab labels themselves, fully visible and unclipped. */
+            padding-bottom: 7.5rem;
             padding-left: 1rem;
             padding-right: 1rem;
-            /* Room for the fixed ad sidebar (84px wide on phones) plus
-               a breathing gap, so page content never sits flush
-               against the ads. */
-            margin-right: 100px;
         }
 
         /* Logo */
@@ -2208,8 +2209,25 @@ st.markdown(
            phone screens. */
         .stTabs [data-baseweb="tab-list"] {
             justify-content: center !important;
-            flex-wrap: wrap;
-            row-gap: 0.25rem;
+            flex-wrap: wrap !important;
+            overflow-x: visible !important;
+            row-gap: 0.4rem;
+            column-gap: 0.15rem;
+        }
+        /* Let each tab shrink/wrap its own label instead of forcing a
+           single unbroken line — this is what was letting the tab row
+           run wider than the screen and disappear behind the ad
+           sidebar/bar on phones. */
+        .stTabs [data-baseweb="tab"] {
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 2.4rem;
+        }
+        @media (max-width: 600px) {
+            .stTabs [data-baseweb="tab"] {
+                font-size: 0.82rem !important;
+                padding: 0.5rem 0.6rem !important;
+            }
         }
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: #526539 !important;
@@ -2313,11 +2331,13 @@ st.markdown(
             .block-container {
                 max-width: 640px;
                 padding-top: 2rem;
+                /* Ads move back to a right-hand sidebar at this width,
+                   so we no longer need the bottom clearance and instead
+                   reserve room on the right (130px sidebar + gap). */
                 padding-bottom: 3.5rem;
                 padding-left: 1.5rem;
                 padding-right: 1.5rem;
-                /* ad sidebar grows to 130px at this size, plus gap */
-                margin-right: 155px;
+                margin-right: 160px;
             }
             .purebites-logo { width: 190px; }
             .greeting-card { padding: 1.15rem 1.4rem; }
@@ -2347,7 +2367,7 @@ st.markdown(
                 padding-left: 1.75rem;
                 padding-right: 1.75rem;
                 /* ad sidebar grows to 175px at this size, plus gap */
-                margin-right: 205px;
+                margin-right: 210px;
             }
             .purebites-logo { width: 220px; }
             .greeting-card { padding: 1.3rem 1.6rem; }
@@ -2712,24 +2732,37 @@ st.markdown(
            rendered once outside of st.tabs(), so it stays put no
            matter which tab is active.
 
-           It's visible at every screen size, just resized — narrow
-           and icon-only on phones, wider with a title on desktop —
-           and .block-container gets a matching margin-right (set
-           alongside each breakpoint above) so page content always
-           keeps a comfortable gap from it instead of butting up
-           against it.
+           On phones (below 768px) there just isn't enough horizontal
+           room for a right-hand column without it eating into (or
+           outright covering) page content like the tab labels — so
+           on phones this renders as a slim horizontal bar docked to
+           the *bottom* of the screen instead. .block-container adds
+           matching bottom padding on phones (set above) so the last
+           bit of page content never sits behind that bar.
+
+           From 768px up there's enough width for the original
+           right-hand column, and .block-container gets a matching
+           margin-right (set alongside each breakpoint above) so page
+           content keeps a comfortable gap from it.
         --------------------------------------------------------- */
         .purebites-ad-sidebar {
             position: fixed;
-            top: 0;
+            left: 0;
             right: 0;
-            width: 84px;
-            height: 100vh;
+            bottom: 0;
+            width: 100%;
+            height: auto;
+            max-height: 6.5rem;
             background-color: #DCE4C9;
-            padding: 1rem 0.5rem;
-            overflow-y: auto;
+            padding: 0.6rem 0.75rem;
+            overflow-x: auto;
+            overflow-y: hidden;
             z-index: 998;
-            box-shadow: -2px 0 10px rgba(82, 101, 57, 0.1);
+            box-shadow: 0 -2px 10px rgba(82, 101, 57, 0.12);
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 0.6rem;
         }
         .purebites-ad-sidebar-title {
             /* No room for a title on phones — icon/logo ads only */
@@ -2737,10 +2770,12 @@ st.markdown(
         }
         .purebites-ad-card {
             display: block;
+            flex: 0 0 auto;
+            width: 4.6rem;
+            height: 4.6rem;
             background-color: #FFFFFF;
-            border-radius: 10px;
+            border-radius: 12px;
             overflow: hidden;
-            margin-bottom: 0.6rem;
             box-shadow: 0 2px 8px rgba(82, 101, 57, 0.1);
             text-decoration: none;
             transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -2751,22 +2786,37 @@ st.markdown(
         }
         .purebites-ad-card img {
             width: 100%;
+            height: 100%;
             display: block;
+            object-fit: cover;
         }
 
-        /* Small tablets / large phones */
-        @media (min-width: 600px) {
+        /* Tablets / small laptops — switch to the right-hand column */
+        @media (min-width: 768px) {
             .purebites-ad-sidebar {
-                width: 120px;
+                left: auto;
+                bottom: auto;
+                top: 0;
+                right: 0;
+                width: 130px;
+                height: 100vh;
+                max-height: none;
                 padding: 1.25rem 0.65rem;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0;
+                overflow-x: hidden;
+                overflow-y: auto;
+                box-shadow: -2px 0 10px rgba(82, 101, 57, 0.1);
             }
             .purebites-ad-card {
-                border-radius: 12px;
+                width: 100%;
+                height: auto;
                 margin-bottom: 0.85rem;
             }
         }
 
-        /* Tablets / small laptops — enough room for the title again */
+        /* Desktop — enough room for the title again */
         @media (min-width: 1024px) {
             .purebites-ad-sidebar {
                 width: 175px;
