@@ -3057,41 +3057,44 @@ st.markdown(
             margin-bottom: 0.15rem;
         }
 
-        /* Tablets and up — ad sidebar becomes a right-hand column, so
-           the bubble moves to a fixed spot to its left, tucked low in
-           the corner near the bottom of the viewport (see reference
-           screenshot). The sidebar itself changes width at 768px,
-           1024px, and 1300px (see .purebites-ad-sidebar rules above),
-           so the bubble's "right" offset is matched to each of those
-           same breakpoints (sidebar width + ~20-30px gap) — otherwise
-           at in-between sizes it either overlaps the sidebar or floats
-           way off to its left. */
+        /* Tablets and up — the ad sidebar becomes a right-hand column
+           instead of a bottom bar (see .purebites-ad-sidebar above),
+           so the bubble needs to sit immediately to its LEFT rather
+           than floating near the bottom edge like it does on mobile.
+           The ad sidebar's own width grows at each of its three
+           breakpoints (130px / 175px / 220px), so the bubble's "right"
+           offset is recalculated at those same three breakpoints —
+           sidebar width + a small 14px gap — so it always sits right
+           next to the sidebar with no big empty gap and never slides
+           underneath it. */
         @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
-                bottom: 20px;
-                right: 150px; /* 130px sidebar + 20px gap */
+                bottom: 90px;
+                right: 144px; /* 130px sidebar + 14px gap */
             }
             .st-key-ai_helper_panel {
-                bottom: 88px;
-                right: 150px;
+                bottom: 158px;
+                right: 144px;
                 width: min(340px, 85vw);
                 max-height: 60vh;
             }
         }
+
         @media (min-width: 1024px) {
             .st-key-ai_helper_bubble {
-                right: 195px; /* 175px sidebar + 20px gap */
+                right: 189px; /* 175px sidebar + 14px gap */
             }
             .st-key-ai_helper_panel {
-                right: 195px;
+                right: 189px;
             }
         }
+
         @media (min-width: 1300px) {
             .st-key-ai_helper_bubble {
-                right: 250px; /* 220px sidebar + 30px gap */
+                right: 234px; /* 220px sidebar + 14px gap */
             }
             .st-key-ai_helper_panel {
-                right: 250px;
+                right: 234px;
             }
         }
     </style>
