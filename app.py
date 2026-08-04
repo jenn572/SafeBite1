@@ -3057,40 +3057,23 @@ st.markdown(
             margin-bottom: 0.15rem;
         }
 
-        /* Tablets / small laptops — ad sidebar becomes a 130px-wide
-           right-hand column running the full viewport height. The
-           bubble sits low and to its left, near the "Manage app"
-           corner rather than up near the top of the column. */
+        /* Tablets and up — ad sidebar becomes a right-hand column, so
+           the bubble moves to a fixed spot to its left, near the
+           bottom of the screen, instead of hugging the very bottom
+           edge like it does on mobile. One fixed spot (wide enough to
+           clear the sidebar's widest size) instead of three separate
+           breakpoint calculations — simpler and less likely to place
+           it somewhere off-screen or hidden. */
         @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
                 bottom: 90px;
-                right: calc(130px + 24px);
+                right: 250px;
             }
             .st-key-ai_helper_panel {
                 bottom: 158px;
-                right: calc(130px + 24px);
+                right: 250px;
                 width: min(340px, 85vw);
                 max-height: 60vh;
-            }
-        }
-
-        /* Desktop — ad sidebar widens to 175px */
-        @media (min-width: 1024px) {
-            .st-key-ai_helper_bubble {
-                right: calc(175px + 24px);
-            }
-            .st-key-ai_helper_panel {
-                right: calc(175px + 24px);
-            }
-        }
-
-        /* Wide desktop — ad sidebar at its full 220px size */
-        @media (min-width: 1300px) {
-            .st-key-ai_helper_bubble {
-                right: calc(220px + 24px);
-            }
-            .st-key-ai_helper_panel {
-                right: calc(220px + 24px);
             }
         }
     </style>
