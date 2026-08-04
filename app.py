@@ -147,6 +147,140 @@ def render_ad_sidebar():
     )
 
 
+# ---- 0.7 AI HELPER (floating chat bubble) ----------------------
+# A small floating chat widget, bottom-right corner, on every tab.
+# Uses the free tier of Google's Gemini API. If no GEMINI_API_KEY
+# secret is configured, the widget still renders but replies with a
+# friendly setup message instead of crashing the app.
+
+GEMINI_MODEL = "gemini-2.5-flash"
+
+AI_HELPER_SYSTEM_INSTRUCTION = (
+    "You are the PureBites AI Helper, a friendly nutrition and food-"
+    "ingredient assistant built into a grocery food-scanning app. "
+    "Answer questions about ingredients, nutrition claims, and food "
+    "safety clearly and concisely (2-4 short sentences, plain "
+    "language, no medical jargon). You are not a doctor: for "
+    "questions about a specific person's health risk (e.g. 'can my "
+    "toddler eat this', allergies, medical conditions), give general "
+    "food-safety information but also remind the user to check with "
+    "a pediatrician, doctor, or dietitian for anything specific to "
+    "their situation. Stay focused on food, nutrition, and "
+    "ingredients."
+)
+
+
+def ask_ai_helper(question, user_context=""):
+    """Sends a question to the Gemini API and returns the reply text.
+
+    Fails soft: if the API key is missing or the request errors out,
+    returns a friendly message instead of raising, so a flaky network
+    call never crashes the rest of the app.
+    """
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        return (
+            "The AI Helper isn't fully set up yet — ask the app owner "
+            "to add a GEMINI_API_KEY secret in Streamlit Cloud settings."
+        )
+
+    system_instruction = AI_HELPER_SYSTEM_INSTRUCTION
+    if user_context:
+        system_instruction += " " + user_context
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent"
+    )
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    payload = {
+        "system_instruction": {"parts": [{"text": system_instruction}]},
+        "contents": [{"role": "user", "parts": [{"text": question}]}],
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception:
+        return (
+            "Sorry, I couldn't get an answer just now — please try "
+            "again in a moment."
+        )
+
+
+def render_ai_helper():
+    """Renders the floating AI Helper chat bubble + panel. Called once,
+    outside of st.tabs(), so (like the ad sidebar) it stays fixed to
+    the bottom-right corner of the screen no matter which tab the user
+    is on. Requires Streamlit 1.34+ for st.container(key=...) to emit
+    a CSS-targetable class."""
+
+    if "ai_chat_open" not in st.session_state:
+        st.session_state.ai_chat_open = False
+    if "ai_chat_messages" not in st.session_state:
+        st.session_state.ai_chat_messages = []
+
+    with st.container(key="ai_helper_bubble"):
+        icon = "✕" if st.session_state.ai_chat_open else "💬"
+        if st.button(icon, key="ai_helper_toggle"):
+            st.session_state.ai_chat_open = not st.session_state.ai_chat_open
+            st.rerun()
+
+    if not st.session_state.ai_chat_open:
+        return
+
+    with st.container(key="ai_helper_panel"):
+        st.markdown(
+            '<div class="ai-helper-title">🌿 PureBites AI Helper</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Ask about ingredients, nutrition, or food safety. "
+            "Educational only — not medical advice."
+        )
+
+        for msg in st.session_state.ai_chat_messages[-8:]:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        with st.form(key="ai_helper_form", clear_on_submit=True):
+            question = st.text_input(
+                "Ask a question",
+                key="ai_helper_question",
+                label_visibility="collapsed",
+                placeholder="e.g. Is Greek yogurt healthier?",
+            )
+            submitted = st.form_submit_button("Send")
+
+        if submitted and question.strip():
+            st.session_state.ai_chat_messages.append(
+                {"role": "user", "content": question.strip()}
+            )
+
+            context = ""
+            current = st.session_state.get("auth_user")
+            if current and not is_guest_user(current):
+                allergies = get_user_allergies(current)
+                dietary = get_user_dietary_restrictions(current)
+                if allergies:
+                    context += f" The user has these allergies: {', '.join(allergies)}."
+                if dietary:
+                    context += (
+                        " The user follows these dietary restrictions: "
+                        f"{', '.join(dietary)}."
+                    )
+
+            with st.spinner("Thinking..."):
+                answer = ask_ai_helper(question.strip(), context)
+
+            st.session_state.ai_chat_messages.append(
+                {"role": "assistant", "content": answer}
+            )
+            st.rerun()
+
+
 # ---- 0.5 ACCOUNT DATABASE -------------------------------------
 # Accounts are stored in a hosted Postgres database (Supabase) instead
 # of a local file, so they survive redeploys and app restarts. The
@@ -2858,6 +2992,69 @@ st.markdown(
 )
 
 render_ad_sidebar()
+
+# ---- 4.4 AI HELPER CSS + RENDER ---------------------------------
+st.markdown(
+    """
+    <style>
+        .st-key-ai_helper_bubble {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10001;
+        }
+        .st-key-ai_helper_bubble .stButton > button {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: #8C9B5D;
+            color: white;
+            font-size: 1.4rem;
+            line-height: 1;
+            border: none;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            padding: 0;
+        }
+        .st-key-ai_helper_bubble .stButton > button:hover {
+            background-color: #798552;
+            color: white;
+        }
+        .st-key-ai_helper_panel {
+            position: fixed;
+            bottom: 88px;
+            right: 20px;
+            width: min(340px, 90vw);
+            max-height: 60vh;
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 16px;
+            padding: 1rem 1rem 0.5rem 1rem;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+            z-index: 10000;
+        }
+        .ai-helper-title {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #4A5A32;
+            margin-bottom: 0.15rem;
+        }
+        @media (max-width: 480px) {
+            .st-key-ai_helper_panel {
+                right: 12px;
+                bottom: 80px;
+                width: min(300px, 92vw);
+            }
+            .st-key-ai_helper_bubble {
+                right: 12px;
+                bottom: 16px;
+            }
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+render_ai_helper()
 
 
 # ---- 4.5 SPLASH SCREEN -----------------------------------------
