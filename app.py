@@ -58,6 +58,83 @@ def _get_logo_base64():
 LOGO_BASE64 = _get_logo_base64()
 
 
+# ---- 0.6 SPONSOR / AD SIDEBAR IMAGES --------------------------
+# Small ad images shown in a fixed sidebar on the right-hand side of
+# the screen. Each image links out to the sponsor's website. Like the
+# logo above, these are base64-encoded so they render without needing
+# a public image host — just drop the files next to app.py in the repo.
+
+AD_ANNIES_PATH = os.path.join(os.path.dirname(__file__), "ad_annies.jpg")
+AD_SKINNYPOP_PATH = os.path.join(os.path.dirname(__file__), "ad_skinnypop.jpeg")
+AD_BELVITA_PATH = os.path.join(os.path.dirname(__file__), "ad_belvita.png")
+
+
+def _get_image_base64(path):
+    """Same idea as _get_logo_base64: read an image file next to app.py
+    and return it as base64. Returns None (and the ad is simply skipped)
+    if the file isn't found, so a missing ad image never crashes the app."""
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except FileNotFoundError:
+        return None
+
+
+# Each entry: the base64 image data, its MIME type (must match the
+# actual file type), the destination URL, and alt text for accessibility.
+AD_SIDEBAR_ADS = [
+    {
+        "base64": _get_image_base64(AD_ANNIES_PATH),
+        "mime": "image/jpeg",
+        "url": "https://www.annies.com/",
+        "alt": "Annie's",
+    },
+    {
+        "base64": _get_image_base64(AD_SKINNYPOP_PATH),
+        "mime": "image/jpeg",
+        "url": "https://www.hersheyland.com/skinnypop",
+        "alt": "SkinnyPop",
+    },
+    {
+        "base64": _get_image_base64(AD_BELVITA_PATH),
+        "mime": "image/png",
+        "url": "https://belvitastore.com/",
+        "alt": "belVita",
+    },
+]
+
+
+def render_ad_sidebar():
+    """Renders the fixed right-hand ad sidebar. Because this is called
+    once, outside of any st.tabs() block, and uses CSS position:fixed,
+    it stays on screen no matter which tab the user is on and can't be
+    dismissed/closed. Ads with a missing image file are silently
+    skipped rather than breaking the whole sidebar."""
+    cards_html = ""
+    for ad in AD_SIDEBAR_ADS:
+        if not ad["base64"]:
+            continue
+        cards_html += (
+            f'<a class="purebites-ad-card" href="{ad["url"]}" '
+            f'target="_blank" rel="noopener noreferrer">'
+            f'<img src="data:{ad["mime"]};base64,{ad["base64"]}" alt="{html.escape(ad["alt"])}">'
+            f'</a>'
+        )
+
+    if not cards_html:
+        return  # none of the ad images were found on disk — skip quietly
+
+    st.markdown(
+        f"""
+        <div class="purebites-ad-sidebar">
+            <div class="purebites-ad-sidebar-title">🌿 Our Partners</div>
+            {cards_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ---- 0.5 ACCOUNT DATABASE -------------------------------------
 # Accounts are stored in a hosted Postgres database (Supabase) instead
 # of a local file, so they survive redeploys and app restarts. The
@@ -2580,10 +2657,70 @@ st.markdown(
             text-align: left;
             margin-top: 0.4rem;
         }
+
+        /* ---------------------------------------------------------
+           RIGHT-HAND AD SIDEBAR
+           A custom fixed panel that mirrors the look of Streamlit's
+           native left sidebar (same background color, rounded white
+           cards, soft shadow) but sits on the right and has no
+           built-in "collapse" control, so it can't be closed. It's
+           rendered once outside of st.tabs(), so it stays put no
+           matter which tab is active.
+        --------------------------------------------------------- */
+        .purebites-ad-sidebar {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 230px;
+            height: 100vh;
+            background-color: #DCE4C9;
+            padding: 1.75rem 1rem 1rem 1rem;
+            overflow-y: auto;
+            z-index: 998;
+            box-shadow: -2px 0 10px rgba(82, 101, 57, 0.1);
+        }
+        .purebites-ad-sidebar-title {
+            color: #33421F;
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 1.1rem;
+            text-align: center;
+            letter-spacing: 0.02em;
+        }
+        .purebites-ad-card {
+            display: block;
+            background-color: #FFFFFF;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 2px 10px rgba(82, 101, 57, 0.1);
+            text-decoration: none;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .purebites-ad-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 14px rgba(82, 101, 57, 0.2);
+        }
+        .purebites-ad-card img {
+            width: 100%;
+            display: block;
+        }
+        /* Only show the ad sidebar on wide desktop screens — the
+           centered app layout leaves empty space there to use.  On
+           tablets/phones there's no spare room, so it's hidden rather
+           than covering the app (matching how Streamlit's own sidebar
+           auto-collapses on narrow screens). */
+        @media (max-width: 1300px) {
+            .purebites-ad-sidebar {
+                display: none;
+            }
+        }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+render_ad_sidebar()
 
 
 # ---- 4.5 SPLASH SCREEN -----------------------------------------
