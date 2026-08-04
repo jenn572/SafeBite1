@@ -3022,24 +3022,24 @@ st.markdown(
             z-index: 10001;
         }
         .st-key-ai_helper_bubble .stButton > button {
-            width: 56px;
-            height: 56px;
+            width: 60px;
+            height: 60px;
             border-radius: 50%;
-            background-color: #8C9B5D;
-            color: white;
-            font-size: 1.4rem;
+            background-color: #8C9B5D !important;
+            color: white !important;
+            font-size: 1.5rem;
             line-height: 1;
-            border: none;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            border: 3px solid white !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
             padding: 0;
         }
         .st-key-ai_helper_bubble .stButton > button:hover {
-            background-color: #798552;
-            color: white;
+            background-color: #798552 !important;
+            color: white !important;
         }
         .st-key-ai_helper_panel {
             position: fixed;
-            bottom: calc(6.5rem + 80px);
+            bottom: calc(6.5rem + 84px);
             right: 12px;
             width: min(300px, 92vw);
             max-height: 55vh;
@@ -3058,16 +3058,17 @@ st.markdown(
         }
 
         /* Tablets / small laptops — ad sidebar becomes a 130px-wide
-           right-hand column running the full viewport height, so the
-           bubble/panel move to the left of it instead of above it. */
+           right-hand column running the full viewport height. The
+           bubble sits low and to its left, near the "Manage app"
+           corner rather than up near the top of the column. */
         @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
-                bottom: 20px;
-                right: calc(130px + 16px);
+                bottom: 90px;
+                right: calc(130px + 24px);
             }
             .st-key-ai_helper_panel {
-                bottom: 88px;
-                right: calc(130px + 16px);
+                bottom: 158px;
+                right: calc(130px + 24px);
                 width: min(340px, 85vw);
                 max-height: 60vh;
             }
@@ -3076,20 +3077,20 @@ st.markdown(
         /* Desktop — ad sidebar widens to 175px */
         @media (min-width: 1024px) {
             .st-key-ai_helper_bubble {
-                right: calc(175px + 16px);
+                right: calc(175px + 24px);
             }
             .st-key-ai_helper_panel {
-                right: calc(175px + 16px);
+                right: calc(175px + 24px);
             }
         }
 
         /* Wide desktop — ad sidebar at its full 220px size */
         @media (min-width: 1300px) {
             .st-key-ai_helper_bubble {
-                right: calc(220px + 16px);
+                right: calc(220px + 24px);
             }
             .st-key-ai_helper_panel {
-                right: calc(220px + 16px);
+                right: calc(220px + 24px);
             }
         }
     </style>
