@@ -67,6 +67,7 @@ LOGO_BASE64 = _get_logo_base64()
 AD_ANNIES_PATH = os.path.join(os.path.dirname(__file__), "ad_annies.jpg")
 AD_SKINNYPOP_PATH = os.path.join(os.path.dirname(__file__), "ad_skinnypop.jpeg")
 AD_BELVITA_PATH = os.path.join(os.path.dirname(__file__), "ad_belvita.png")
+AD_STONYFIELD_PATH = os.path.join(os.path.dirname(__file__), "ad_stonyfield.jpg")
 
 
 def _get_image_base64(path):
@@ -100,6 +101,17 @@ AD_SIDEBAR_ADS = [
         "mime": "image/png",
         "url": "https://belvitastore.com/",
         "alt": "belVita",
+    },
+    {
+        "base64": _get_image_base64(AD_STONYFIELD_PATH),
+        "mime": "image/jpeg",
+        "url": (
+            "https://www.stonyfield.com/products/whole-milk-probiotic-yogurt-vanilla-32-oz/"
+            "?gclsrc=aw.ds&gad_source=1&gad_campaignid=19421618393"
+            "&gbraid=0AAAAAC1KvtbZhhPfhp-wEfHYvOIGFk3k7"
+            "&gclid=Cj0KCQjw-MDTBhCgARIsAKAkdlTlog35q-MaPE82lHwtxJ9GVaBtZ9C_qheqUXi5CA02oxHby8vJlvQaAhBoEALw_wcB"
+        ),
+        "alt": "Stonyfield Organic",
     },
 ]
 
@@ -2190,6 +2202,15 @@ st.markdown(
            but these rules act as a CSS-level backup for the same
            elements shown in red before (tabs, selected pills/tags).
         --------------------------------------------------------- */
+        /* Center the tab row instead of it hugging the left edge —
+           applies on both mobile and desktop since it's just flexbox
+           centering, with wrapping so tabs don't overflow narrow
+           phone screens. */
+        .stTabs [data-baseweb="tab-list"] {
+            justify-content: center !important;
+            flex-wrap: wrap;
+            row-gap: 0.25rem;
+        }
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: #526539 !important;
         }
@@ -4424,9 +4445,6 @@ with tab_profile:
 #  DONATE TAB
 # ============================================================
 
-# TODO: replace with your actual GoFundMe campaign URL.
-GOFUNDME_URL = ""
-
 FEEDING_AMERICA_DONATE_URL = (
     "https://give.feedingamerica.org/JikGJ41QV0GIR-DFe7Qciw2"
     "?r=n&ms=26-T2A&oa_onsite_promo=header"
@@ -4453,46 +4471,6 @@ with tab_donate:
         """,
         unsafe_allow_html=True,
     )
-
-    # ---- GoFundMe ----
-    st.markdown('<p class="section-title">🌱 Our GoFundMe</p>', unsafe_allow_html=True)
-
-    if GOFUNDME_URL:
-        st.markdown(
-            f"""
-            <div class="gofundme-card">
-                <div class="gofundme-card-title">Help PureBites Give Back</div>
-                <div class="gofundme-card-sub">
-                    Every contribution helps us keep building tools that
-                    keep people safe and support communities in need.
-                </div>
-                <a class="gofundme-link-button" href="{GOFUNDME_URL}" target="_blank">
-                    🌿 View Our GoFundMe
-                </a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """
-            <div class="gofundme-card">
-                <div class="gofundme-card-title">Help PureBites Give Back</div>
-                <div class="gofundme-card-sub">
-                    Every contribution helps us keep building tools that
-                    keep people safe and support communities in need.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.caption(
-            "⚠️ No GoFundMe link is set yet — add your campaign URL to the "
-            "`GOFUNDME_URL` variable near the top of the Donate tab to "
-            "activate this button."
-        )
-
-    st.write("")
 
     # ---- Feeding America ----
     st.markdown('<p class="section-title">🍽️ Feeding America</p>', unsafe_allow_html=True)
