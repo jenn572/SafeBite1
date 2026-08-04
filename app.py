@@ -207,13 +207,20 @@ def ask_ai_helper(question, user_context=""):
         # Log the response body (Google's actual error message, e.g. bad
         # key, region-blocked, model not found) to Streamlit Cloud's app
         # logs, viewable via "Manage app" — without exposing it to users.
-        print(f"[ai_helper] Gemini HTTP error {resp.status_code}: {resp.text}")
+        detail = f"Gemini HTTP error {resp.status_code}: {resp.text}"
+        print(f"[ai_helper] {detail}", flush=True)
+        # TEMP DEBUG: surface the real error on-screen too, so we don't
+        # have to dig through logs. Remove this line once things work.
+        st.session_state.ai_helper_last_error = detail
         return (
             "Sorry, I couldn't get an answer just now — please try "
             "again in a moment."
         )
     except Exception as e:
-        print(f"[ai_helper] Gemini request failed: {type(e).__name__}: {e}")
+        detail = f"{type(e).__name__}: {e}"
+        print(f"[ai_helper] Gemini request failed: {detail}", flush=True)
+        # TEMP DEBUG: same as above — remove once things work.
+        st.session_state.ai_helper_last_error = detail
         return (
             "Sorry, I couldn't get an answer just now — please try "
             "again in a moment."
@@ -250,6 +257,11 @@ def render_ai_helper():
             "Ask about ingredients, nutrition, or food safety. "
             "Educational only — not medical advice."
         )
+
+        # TEMP DEBUG: shows the real error inline instead of just the
+        # friendly fallback message. Remove this block once things work.
+        if st.session_state.get("ai_helper_last_error"):
+            st.error(f"Debug: {st.session_state.ai_helper_last_error}")
 
         for msg in st.session_state.ai_chat_messages[-8:]:
             with st.chat_message(msg["role"]):
