@@ -3058,22 +3058,40 @@ st.markdown(
         }
 
         /* Tablets and up — ad sidebar becomes a right-hand column, so
-           the bubble moves to a fixed spot to its left, near the
-           bottom of the screen, instead of hugging the very bottom
-           edge like it does on mobile. One fixed spot (wide enough to
-           clear the sidebar's widest size) instead of three separate
-           breakpoint calculations — simpler and less likely to place
-           it somewhere off-screen or hidden. */
+           the bubble moves to a fixed spot to its left, tucked low in
+           the corner near the bottom of the viewport (see reference
+           screenshot). The sidebar itself changes width at 768px,
+           1024px, and 1300px (see .purebites-ad-sidebar rules above),
+           so the bubble's "right" offset is matched to each of those
+           same breakpoints (sidebar width + ~20-30px gap) — otherwise
+           at in-between sizes it either overlaps the sidebar or floats
+           way off to its left. */
         @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
-                bottom: 90px;
-                right: 250px;
+                bottom: 20px;
+                right: 150px; /* 130px sidebar + 20px gap */
             }
             .st-key-ai_helper_panel {
-                bottom: 158px;
-                right: 250px;
+                bottom: 88px;
+                right: 150px;
                 width: min(340px, 85vw);
                 max-height: 60vh;
+            }
+        }
+        @media (min-width: 1024px) {
+            .st-key-ai_helper_bubble {
+                right: 195px; /* 175px sidebar + 20px gap */
+            }
+            .st-key-ai_helper_panel {
+                right: 195px;
+            }
+        }
+        @media (min-width: 1300px) {
+            .st-key-ai_helper_bubble {
+                right: 250px; /* 220px sidebar + 30px gap */
+            }
+            .st-key-ai_helper_panel {
+                right: 250px;
             }
         }
     </style>
