@@ -17,7 +17,7 @@ import json
 import os
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import psycopg2
 import requests
@@ -200,6 +200,27 @@ def verify_login(email, password):
     return None
 
 
+def get_client_local_date():
+    """Best-effort local calendar date for the person using the app
+    right now, based on their browser's timezone offset
+    (st.context.timezone_offset — minutes, positive when the browser
+    is behind UTC). Falls back to the server's UTC date if that isn't
+    available. Streamlit Cloud always runs the app in UTC, so without
+    this, an evening login from anyone west of UTC can already land on
+    "tomorrow" server-side — making the next real day's login look
+    like the same day (streak doesn't move) or a 2-day gap (streak
+    resets to 1) purely because of the clock mismatch, not an actual
+    missed day."""
+    try:
+        offset_minutes = st.context.timezone_offset
+    except Exception:
+        offset_minutes = None
+    utc_now = datetime.utcnow()
+    if offset_minutes is None:
+        return utc_now.date()
+    return (utc_now - timedelta(minutes=offset_minutes)).date()
+
+
 def record_login_streak(email):
     """Update (and return) the user's daily login streak.
 
@@ -207,9 +228,13 @@ def record_login_streak(email):
     - Logging in exactly one day after the last login adds a day.
     - Logging in after a gap of more than one day resets the streak to 1.
     - A first-ever login (e.g. right after sign up) starts the streak at 1.
+
+    "Day" is judged by the person's own browser timezone (see
+    get_client_local_date), not the server's UTC clock.
     """
     user = get_user(email)
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today = get_client_local_date()
+    today_str = today.strftime("%Y-%m-%d")
     last_login = user["last_login_date"]
     streak = user["streak_count"] or 0
 
@@ -217,7 +242,7 @@ def record_login_streak(email):
         new_streak = streak if streak else 1
     elif last_login:
         last_date = datetime.strptime(last_login, "%Y-%m-%d").date()
-        gap_days = (datetime.now().date() - last_date).days
+        gap_days = (today - last_date).days
         new_streak = streak + 1 if gap_days == 1 else 1
     else:
         new_streak = 1
@@ -3503,6 +3528,30 @@ HEALTHY_CATCH_HTML = """
         max-width: 320px;
     }
 
+    .hc-duration-select {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 18px;
+        width: 100%;
+        max-width: 260px;
+    }
+    .hc-duration-btn {
+        flex: 1;
+        border: 2px solid #CADBAF;
+        background-color: #FFFFFF;
+        color: #526539;
+        border-radius: 999px;
+        padding: 9px 10px;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .hc-duration-btn.hc-duration-btn-active {
+        background-color: #526539;
+        border-color: #526539;
+        color: #FFFFFF;
+    }
+
     .hc-overlay-buttons {
         display: flex;
         flex-direction: column;
@@ -3569,7 +3618,11 @@ HEALTHY_CATCH_HTML = """
             <div class="hc-overlay-title">Ready to play?</div>
             <div class="hc-overlay-text">
                 Drag your cart left and right to catch healthy foods and
-                dodge the junk. You've got 60 seconds!
+                dodge the junk. Pick a round length to get started!
+            </div>
+            <div class="hc-duration-select" id="hcDurationSelect">
+                <button class="hc-duration-btn" data-seconds="10">⚡ 10 Seconds</button>
+                <button class="hc-duration-btn hc-duration-btn-active" data-seconds="60">⏱ 1 Minute</button>
             </div>
             <button class="hc-btn hc-btn-primary" id="hcStartBtn">▶ Start New Game</button>
         </div>
@@ -3640,8 +3693,9 @@ HEALTHY_CATCH_HTML = """
     const resumeBtn = document.getElementById('hcResumeBtn');
     const arrowLeft = document.getElementById('hcArrowLeft');
     const arrowRight = document.getElementById('hcArrowRight');
+    const durationBtns = document.querySelectorAll('.hc-duration-btn');
 
-    const ROUND_SECONDS = 60;
+    let ROUND_SECONDS = 60;
     const CART_WIDTH = 74;
     const CART_BOTTOM = 46;
     const CART_HEIGHT = 64;
@@ -3805,14 +3859,30 @@ HEALTHY_CATCH_HTML = """
     }
 
     // ---- Timer ----
+    function formatTime(seconds) {
+        const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+        const ss = String(seconds % 60).padStart(2, '0');
+        return mm + ':' + ss;
+    }
+
     function tick() {
         if (paused) return;
         timeLeft -= 1;
-        const mm = String(Math.floor(timeLeft / 60)).padStart(2, '0');
-        const ss = String(timeLeft % 60).padStart(2, '0');
-        timerEl.textContent = mm + ':' + ss;
+        timerEl.textContent = formatTime(timeLeft);
         if (timeLeft <= 0) {
             endGame();
+        }
+    }
+
+    function selectDuration(seconds) {
+        ROUND_SECONDS = seconds;
+        durationBtns.forEach(function (btn) {
+            const isActive = parseInt(btn.dataset.seconds, 10) === seconds;
+            btn.classList.toggle('hc-duration-btn-active', isActive);
+        });
+        if (!running) {
+            timeLeft = ROUND_SECONDS;
+            timerEl.textContent = formatTime(ROUND_SECONDS);
         }
     }
 
@@ -3822,7 +3892,7 @@ HEALTHY_CATCH_HTML = """
         timeLeft = ROUND_SECONDS;
         healthyCountEl.textContent = '0';
         unhealthyCountEl.textContent = '0';
-        timerEl.textContent = '01:00';
+        timerEl.textContent = formatTime(ROUND_SECONDS);
         items.forEach(function (it) { it.el.remove(); });
         items = [];
         running = true;
@@ -3899,12 +3969,17 @@ HEALTHY_CATCH_HTML = """
         unhealthyCaught = 0;
         healthyCountEl.textContent = '0';
         unhealthyCountEl.textContent = '0';
-        timerEl.textContent = '01:00';
+        timerEl.textContent = formatTime(ROUND_SECONDS);
     }
 
     startBtn.addEventListener('click', startGame);
     resumeBtn.addEventListener('click', togglePause);
     pauseBtn.addEventListener('click', togglePause);
+    durationBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            selectDuration(parseInt(btn.dataset.seconds, 10));
+        });
+    });
 
     centerCart();
     window.addEventListener('resize', function () { if (!dragging && !running) centerCart(); });
@@ -3921,7 +3996,7 @@ with tab_games:
         <div class="instruction-card">
             <strong>Healthy Catch</strong> — drag your cart left and right
             to catch falling foods. Try to catch the healthy foods and
-            dodge the junk! You've got 60 seconds per round, then you'll
+            dodge the junk! Choose a 10-second or 1-minute round, then
             see how many of each you caught.
         </div>
         """,
