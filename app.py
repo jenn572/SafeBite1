@@ -3007,10 +3007,18 @@ render_ad_sidebar()
 st.markdown(
     """
     <style>
+        /* AI Helper bubble + panel, positioned to sit beside the ad
+           partner sidebar rather than on top of it. On phones the ad
+           sidebar is a bottom bar (see .purebites-ad-sidebar above),
+           so the bubble floats just above it. From 768px up the ad
+           sidebar becomes a right-hand column, so the bubble sits to
+           its left, at the same width the sidebar uses at that
+           breakpoint, with a small gap between them.
+        */
         .st-key-ai_helper_bubble {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            bottom: calc(6.5rem + 12px);
+            right: 12px;
             z-index: 10001;
         }
         .st-key-ai_helper_bubble .stButton > button {
@@ -3031,10 +3039,10 @@ st.markdown(
         }
         .st-key-ai_helper_panel {
             position: fixed;
-            bottom: 88px;
-            right: 20px;
-            width: min(340px, 90vw);
-            max-height: 60vh;
+            bottom: calc(6.5rem + 80px);
+            right: 12px;
+            width: min(300px, 92vw);
+            max-height: 55vh;
             overflow-y: auto;
             background-color: white;
             border-radius: 16px;
@@ -3048,15 +3056,40 @@ st.markdown(
             color: #4A5A32;
             margin-bottom: 0.15rem;
         }
-        @media (max-width: 480px) {
-            .st-key-ai_helper_panel {
-                right: 12px;
-                bottom: 80px;
-                width: min(300px, 92vw);
-            }
+
+        /* Tablets / small laptops — ad sidebar becomes a 130px-wide
+           right-hand column running the full viewport height, so the
+           bubble/panel move to the left of it instead of above it. */
+        @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
-                right: 12px;
-                bottom: 16px;
+                bottom: 20px;
+                right: calc(130px + 16px);
+            }
+            .st-key-ai_helper_panel {
+                bottom: 88px;
+                right: calc(130px + 16px);
+                width: min(340px, 85vw);
+                max-height: 60vh;
+            }
+        }
+
+        /* Desktop — ad sidebar widens to 175px */
+        @media (min-width: 1024px) {
+            .st-key-ai_helper_bubble {
+                right: calc(175px + 16px);
+            }
+            .st-key-ai_helper_panel {
+                right: calc(175px + 16px);
+            }
+        }
+
+        /* Wide desktop — ad sidebar at its full 220px size */
+        @media (min-width: 1300px) {
+            .st-key-ai_helper_bubble {
+                right: calc(220px + 16px);
+            }
+            .st-key-ai_helper_panel {
+                right: calc(220px + 16px);
             }
         }
     </style>
