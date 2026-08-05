@@ -128,6 +128,72 @@ AD_SIDEBAR_ADS = [
 ]
 
 
+# ---- 0.6b GROCERY PARTNER LOGOS --------------------------------
+# Logos for the "Grocery Partners" section shown at the bottom of the
+# Scanner tab, under the sample products. Same base64 approach as the
+# ad sidebar above — each logo links out to the store's website.
+
+GROCERY_WHOLEFOODS_PATH = os.path.join(os.path.dirname(__file__), "wholefoods.svg")
+GROCERY_TRADERJOES_PATH = os.path.join(os.path.dirname(__file__), "traderjoes.webp")
+GROCERY_NATURESFOOD_PATH = os.path.join(os.path.dirname(__file__), "naturesfoodmarket.jpeg")
+
+GROCERY_PARTNERS = [
+    {
+        "base64": _get_image_base64(GROCERY_NATURESFOOD_PATH),
+        "mime": "image/jpeg",
+        "url": "https://www.naturesfoodmarkets.com/",
+        "alt": "Nature's Food Markets",
+    },
+    {
+        "base64": _get_image_base64(GROCERY_TRADERJOES_PATH),
+        "mime": "image/webp",
+        "url": "https://www.traderjoes.com/",
+        "alt": "Trader Joe's",
+    },
+    {
+        "base64": _get_image_base64(GROCERY_WHOLEFOODS_PATH),
+        "mime": "image/svg+xml",
+        "url": "https://www.wholefoodsmarket.com/",
+        "alt": "Whole Foods Market",
+    },
+]
+
+
+def render_grocery_partners():
+    """Renders the 'Grocery Partners' strip at the bottom of the
+    Scanner tab — three store logos side by side, each linking out to
+    that store's website. Logos with a missing image file are silently
+    skipped rather than breaking the section, and the whole section is
+    skipped if none of the images were found."""
+    cards_html = ""
+    for partner in GROCERY_PARTNERS:
+        if not partner["base64"]:
+            continue
+        cards_html += (
+            f'<a class="purebites-grocery-card" href="{partner["url"]}" '
+            f'target="_blank" rel="noopener noreferrer">'
+            f'<img src="data:{partner["mime"]};base64,{partner["base64"]}" '
+            f'alt="{html.escape(partner["alt"])}">'
+            f'</a>'
+        )
+
+    if not cards_html:
+        return  # none of the logo files were found on disk — skip quietly
+
+    st.markdown(
+        f"""
+        <p class="section-title">🛒 Grocery Partners</p>
+        <p class="purebites-grocery-blurb">
+            We hope to partner with these food markets:
+        </p>
+        <div class="purebites-grocery-row">
+            {cards_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_ad_sidebar():
     """Renders the fixed right-hand ad sidebar. Because this is called
     once, outside of any st.tabs() block, and uses CSS position:fixed,
@@ -2257,6 +2323,58 @@ st.markdown(
             font-size: 0.9rem;
         }
 
+        /* Grocery Partners strip (bottom of the Scanner tab) */
+        .purebites-grocery-blurb {
+            color: #4C5A38;
+            font-size: 0.88rem;
+            margin: 0 0 0.9rem 0;
+        }
+        .purebites-grocery-row {
+            display: flex;
+            flex-direction: row;
+            align-items: stretch;
+            gap: 0.7rem;
+            margin-bottom: 0.5rem;
+        }
+        .purebites-grocery-card {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            padding: 0.7rem 0.5rem;
+            height: 4.6rem;
+            box-shadow: 0 2px 8px rgba(82, 101, 57, 0.1);
+            text-decoration: none;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .purebites-grocery-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 14px rgba(82, 101, 57, 0.2);
+        }
+        .purebites-grocery-card img {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* Tablets and up — a little more breathing room per logo */
+        @media (min-width: 768px) {
+            .purebites-grocery-row {
+                gap: 1rem;
+            }
+            .purebites-grocery-card {
+                height: 6rem;
+                padding: 1rem 0.75rem;
+                border-radius: 14px;
+            }
+        }
+
         /* Buttons */
         .stButton > button {
             width: 100%;
@@ -3614,6 +3732,9 @@ with tab_scan:
             auth_message("🚨 Allergy alert: " + ", ".join(allergen_hits))
         else:
             st.info("No allergens from our current allergen list were found.")
+
+    st.divider()
+    render_grocery_partners()
 
 
 # ============================================================
