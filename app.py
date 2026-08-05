@@ -3057,44 +3057,39 @@ st.markdown(
             margin-bottom: 0.15rem;
         }
 
-        /* Tablets and up — the ad sidebar becomes a right-hand column
-           instead of a bottom bar (see .purebites-ad-sidebar above),
-           so the bubble needs to sit immediately to its LEFT rather
-           than floating near the bottom edge like it does on mobile.
-           The ad sidebar's own width grows at each of its three
-           breakpoints (130px / 175px / 220px), so the bubble's "right"
-           offset is recalculated at those same three breakpoints —
-           sidebar width + a small 14px gap — so it always sits right
-           next to the sidebar with no big empty gap and never slides
-           underneath it. */
+        /* Tablets and up — the ad sidebar occupies the entire right
+           edge as a full-height column (see .purebites-ad-sidebar
+           above), so there's no vertical slice of the right edge
+           that's ever free of it. Trying to tuck the bubble beside
+           that column kept landing it in the wrong spot, so on
+           desktop it now anchors to the opposite corner — bottom-LEFT
+           of the viewport — well clear of both the ad sidebar and the
+           main content column (which is centered with its own side
+           margins, see .block-container rules above). It's also
+           bumped up in size here since desktop has the room for it.
+           A very high z-index keeps it above every other fixed/sticky
+           element on the page, in case the ad sidebar's stacking
+           context was ever burying it. */
         @media (min-width: 768px) {
             .st-key-ai_helper_bubble {
-                bottom: 90px;
-                right: 144px; /* 130px sidebar + 14px gap */
+                bottom: 28px;
+                left: 28px;
+                right: auto;
+                z-index: 999999;
+            }
+            .st-key-ai_helper_bubble .stButton > button {
+                width: 84px;
+                height: 84px;
+                font-size: 2.2rem;
+                border-width: 4px;
             }
             .st-key-ai_helper_panel {
-                bottom: 158px;
-                right: 144px;
-                width: min(340px, 85vw);
+                bottom: 122px;
+                left: 28px;
+                right: auto;
+                width: min(360px, 85vw);
                 max-height: 60vh;
-            }
-        }
-
-        @media (min-width: 1024px) {
-            .st-key-ai_helper_bubble {
-                right: 189px; /* 175px sidebar + 14px gap */
-            }
-            .st-key-ai_helper_panel {
-                right: 189px;
-            }
-        }
-
-        @media (min-width: 1300px) {
-            .st-key-ai_helper_bubble {
-                right: 234px; /* 220px sidebar + 14px gap */
-            }
-            .st-key-ai_helper_panel {
-                right: 234px;
+                z-index: 999998;
             }
         }
     </style>
