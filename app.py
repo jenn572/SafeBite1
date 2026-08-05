@@ -68,6 +68,7 @@ AD_ANNIES_PATH = os.path.join(os.path.dirname(__file__), "ad_annies.jpg")
 AD_SKINNYPOP_PATH = os.path.join(os.path.dirname(__file__), "ad_skinnypop.jpeg")
 AD_BELVITA_PATH = os.path.join(os.path.dirname(__file__), "ad_belvita.png")
 AD_STONYFIELD_PATH = os.path.join(os.path.dirname(__file__), "ad_stonyfield.jpg")
+AD_KINDBAR_PATH = os.path.join(os.path.dirname(__file__), "ad_kindbar.avif")
 
 
 def _get_image_base64(path):
@@ -112,6 +113,17 @@ AD_SIDEBAR_ADS = [
             "&gclid=Cj0KCQjw-MDTBhCgARIsAKAkdlTlog35q-MaPE82lHwtxJ9GVaBtZ9C_qheqUXi5CA02oxHby8vJlvQaAhBoEALw_wcB"
         ),
         "alt": "Stonyfield Organic",
+    },
+    {
+        "base64": _get_image_base64(AD_KINDBAR_PATH),
+        "mime": "image/avif",
+        "url": (
+            "https://www.kindsnacks.com/search?q=breakfast+protein&lang=en_US"
+            "&gad_source=1&gad_campaignid=20627637314"
+            "&gbraid=0AAAAADpgMU2SSrbuTOEaBMbt-EZc9hGuf"
+            "&gclid=Cj0KCQjwm8bTBhDWARIsAC9Hi8n_OQmUeHFRitLzywm7f6fdVgI4B09_0V9OMYRRqeU-Nyv2XfdBi4gaAtbDEALw_wcB"
+        ),
+        "alt": "KIND Breakfast Protein Bar",
     },
 ]
 
