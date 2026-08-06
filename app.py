@@ -1804,15 +1804,18 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     categories_tags = product.get("categories_tags") or []
     category_tag = categories_tags[-1] if categories_tags else None
 
-    # Whether this product actually has usable English text. Used when
-    # picking healthier-alternative candidates, so we never surface a
-    # product whose name is only available in French, German, etc.
-    # languages_tags is Open Food Facts' dedicated field for this and
-    # is far more reliable than product_name_en/lang — contributors
-    # frequently paste the native-language name into product_name_en
-    # by mistake, which made that check pass for non-English products.
-    languages_tags = product.get("languages_tags") or []
-    has_english_name = "en:english" in languages_tags
+    # Whether this product actually has usable English text, and what
+    # that English name actually is. Used when picking healthier-
+    # alternative candidates, so we never surface a product whose name
+    # only displays in French, German, etc. Some Open Food Facts
+    # entries never got a product_name_en filled in even though the
+    # product genuinely IS in English (the contributor just left that
+    # redundant field blank), so we also accept product_name itself
+    # when the product's primary submitted language is English.
+    english_name = product.get("product_name_en") or (
+        product.get("product_name") if product.get("lang") == "en" else None
+    )
+    has_english_name = bool(english_name)
 
     return {
         "barcode": matched_barcode,
@@ -1828,7 +1831,7 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
         "category_tag": category_tag,
         "categories_tags": categories_tags,
         "has_english_name": has_english_name,
-        "languages_tags": languages_tags,
+        "english_name": english_name,
     }
 
 
@@ -1944,78 +1947,94 @@ def _search_openfoodfacts_category(category_tag, page_size=60):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_healthier_alternatives(category_tag, exclude_barcode, min_score=70, max_results=5):
+def fetch_healthier_alternatives(categories_tags, exclude_barcode, min_score=70, max_results=5):
     """Search Open Food Facts for popular products in the same category
     as a scanned product, score each candidate with the app's own
     health-score logic, and return up to max_results products scoring
     at or above min_score, best first — the same data (ingredients,
     nutrition) shown for the original scanned product is available for
-    each one. Returns (alternatives_list, error_message)."""
-    if not category_tag:
+    each one. Returns (alternatives_list, error_message).
+
+    categories_tags is the scanned product's own categories_tags list
+    (general -> specific, as Open Food Facts returns it). We start
+    from the most specific tag for the closest possible match; if that
+    turns up nothing at all we broaden one step at a time to the next
+    tag up, so a product with a rarely-used narrow category still gets
+    *some* relevant alternatives instead of none. We stop broadening
+    after 3 levels so results stay meaningfully related to what was
+    scanned rather than drifting into an unrelated aisle."""
+    if not categories_tags:
         return [], None
 
-    raw_products, error = _search_openfoodfacts_category(category_tag)
-    if error:
-        return [], error
+    tags_to_try = list(reversed(categories_tags))[:3]
+    last_error = None
 
-    scored = []
-    seen_names = set()
-    for product in raw_products:
-        code = product.get("code")
-        if not code or code == exclude_barcode:
+    for level, tag in enumerate(tags_to_try):
+        raw_products, error = _search_openfoodfacts_category(tag)
+        if error:
+            last_error = error
             continue
 
-        # Open Food Facts' category search isn't always exact — the v1
-        # fallback in particular matches on a loose substring, and even
-        # the v2 endpoint occasionally returns near-misses. A candidate
-        # only counts if the category we searched is that candidate's
-        # OWN most-specific category too (not merely a shared broad
-        # ancestor tag) — otherwise a bread product that happens to
-        # share a generic parent category like "breakfasts" with a
-        # granola bar can slip through even though its own specific
-        # category is "en:breads", not the one we searched.
-        candidate_categories = product.get("categories_tags") or []
-        if not candidate_categories or candidate_categories[-1] != category_tag:
-            continue
+        scored = []
+        seen_names = set()
+        for product in raw_products:
+            code = product.get("code")
+            if not code or code == exclude_barcode:
+                continue
 
-        # translate_ingredients=True so foreign-language ingredient
-        # lists get translated before scoring — otherwise they simply
-        # fail to match our (English) ingredient dictionary, nothing
-        # gets flagged, and the product wrongly scores a perfect 100.
-        candidate = _build_scan_result(product, code, translate_ingredients=True)
-        if not candidate["ingredients_list"]:
-            continue
+            # Open Food Facts' category search isn't always exact — the
+            # v1 fallback in particular matches on a loose substring.
+            # On the first (most specific) pass we require the tag to
+            # be that candidate's OWN most-specific category too, not
+            # merely a shared broad ancestor — this is what keeps a
+            # granola bar from matching bread that only shares a
+            # generic parent like "breakfasts". Once we're deliberately
+            # broadening on later passes, plain containment is enough
+            # since going broader on purpose is the point.
+            candidate_categories = product.get("categories_tags") or []
+            if level == 0:
+                if not candidate_categories or candidate_categories[-1] != tag:
+                    continue
+            else:
+                if tag not in candidate_categories:
+                    continue
 
-        # Alternatives must have a genuine English name — we never want
-        # to recommend a product the user can't actually read. Some OFF
-        # products are tagged "en:english" in languages_tags because
-        # *some* field on the page is in English (e.g. nutrition table)
-        # even though the product name itself is still native-language,
-        # so we also require an actual product_name_en value, not just
-        # the language tag alone.
-        if not candidate["has_english_name"] or not product.get("product_name_en"):
-            continue
+            # translate_ingredients=True so foreign-language ingredient
+            # lists get translated before scoring — otherwise they simply
+            # fail to match our (English) ingredient dictionary, nothing
+            # gets flagged, and the product wrongly scores a perfect 100.
+            candidate = _build_scan_result(product, code, translate_ingredients=True)
+            if not candidate["ingredients_list"]:
+                continue
 
-        name_key = (candidate["name"].strip().lower(), candidate["brand"].strip().lower())
-        if name_key in seen_names:
-            continue
+            # Alternatives must have a genuine English name — we never
+            # want to recommend a product the user can't actually read.
+            if not candidate["has_english_name"]:
+                continue
 
-        score, _, _, _ = compute_health_score(
-            candidate["ingredients_list"],
-            {
-                "sugar_100g": candidate["sugar_100g"],
-                "sodium_100g": candidate["sodium_100g"],
-                "saturated_fat_100g": candidate["saturated_fat_100g"],
-                "fiber_100g": candidate["fiber_100g"],
-            },
-        )
-        if score >= min_score:
-            seen_names.add(name_key)
-            candidate["score"] = score
-            scored.append(candidate)
+            name_key = (candidate["name"].strip().lower(), candidate["brand"].strip().lower())
+            if name_key in seen_names:
+                continue
 
-    scored.sort(key=lambda c: c["score"], reverse=True)
-    return scored[:max_results], None
+            score, _, _, _ = compute_health_score(
+                candidate["ingredients_list"],
+                {
+                    "sugar_100g": candidate["sugar_100g"],
+                    "sodium_100g": candidate["sodium_100g"],
+                    "saturated_fat_100g": candidate["saturated_fat_100g"],
+                    "fiber_100g": candidate["fiber_100g"],
+                },
+            )
+            if score >= min_score:
+                seen_names.add(name_key)
+                candidate["score"] = score
+                scored.append(candidate)
+
+        scored.sort(key=lambda c: c["score"], reverse=True)
+        if scored:
+            return scored[:max_results], None
+
+    return [], last_error
 
 
 def compute_health_score(ingredients_list, nutrition):
@@ -2254,7 +2273,7 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
         else:
             with st.spinner("Looking for healthier alternatives..."):
                 alternatives, alt_error = fetch_healthier_alternatives(
-                    result["category_tag"],
+                    result["categories_tags"],
                     exclude_barcode=result["barcode"],
                     min_score=alt_min_score,
                 )
