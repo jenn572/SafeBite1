@@ -1840,33 +1840,78 @@ def lookup_openfoodfacts(barcode):
 @st.cache_data(ttl=3600, show_spinner=False)
 def _search_openfoodfacts_category(category_tag, page_size=24):
     """Raw search against Open Food Facts for popular products in a
-    given category. Returns (products_list, error_message)."""
+    given category. Returns (products_list, error_message).
+
+    The modern v2 search endpoint is occasionally slow or briefly
+    unavailable (Open Food Facts' own issue tracker shows intermittent
+    503s on it), so we retry once with a longer timeout, and if it
+    still fails, fall back to the older v1 search endpoint — a
+    separate code path on Open Food Facts' side that often succeeds
+    even when v2 is having a bad moment."""
     if not category_tag:
         return [], None
+
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                "https://world.openfoodfacts.org/api/v2/search",
+                headers=OPENFOODFACTS_HEADERS,
+                params={
+                    "categories_tags": category_tag,
+                    "sort_by": "unique_scans_n",
+                    "page_size": page_size,
+                    "fields": (
+                        "code,product_name,product_name_en,brands,"
+                        "image_front_small_url,image_url,ingredients_text,"
+                        "ingredients_text_en,lang,nutriments,categories_tags"
+                    ),
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("products", []), None
+        except requests.RequestException as exc:
+            last_error = f"Request failed: {exc}"
+            print(f"[alternatives] v2 search attempt {attempt + 1} failed for "
+                  f"category={category_tag!r}: {last_error}")
+        except ValueError as exc:
+            last_error = f"Couldn't parse the response: {exc}"
+            print(f"[alternatives] v2 search attempt {attempt + 1} failed for "
+                  f"category={category_tag!r}: {last_error}")
+
+    # v2 didn't come back cleanly after a retry — try the older v1
+    # endpoint as a fallback. It can't filter which fields it returns
+    # (so each product comes back in full), but _build_scan_result
+    # already reads product dicts defensively with .get(), so a full
+    # record works exactly the same as a trimmed one.
     try:
         response = requests.get(
-            "https://world.openfoodfacts.org/api/v2/search",
+            "https://world.openfoodfacts.org/cgi/search.pl",
             headers=OPENFOODFACTS_HEADERS,
             params={
-                "categories_tags": category_tag,
+                "action": "process",
+                "json": 1,
+                "tagtype_0": "categories",
+                "tag_contains_0": "contains",
+                "tag_0": category_tag.split(":", 1)[-1],
                 "sort_by": "unique_scans_n",
                 "page_size": page_size,
-                "fields": (
-                    "code,product_name,product_name_en,brands,"
-                    "image_front_small_url,image_url,ingredients_text,"
-                    "ingredients_text_en,lang,nutriments,categories_tags"
-                ),
             },
-            timeout=10,
+            timeout=15,
         )
         response.raise_for_status()
         data = response.json()
+        return data.get("products", []), None
     except requests.RequestException as exc:
-        return [], f"Request failed: {exc}"
+        print(f"[alternatives] v1 fallback search also failed for "
+              f"category={category_tag!r}: Request failed: {exc}")
+        return [], last_error or f"Request failed: {exc}"
     except ValueError as exc:
-        return [], f"Couldn't parse the response: {exc}"
-
-    return data.get("products", []), None
+        print(f"[alternatives] v1 fallback search also failed for "
+              f"category={category_tag!r}: Couldn't parse the response: {exc}")
+        return [], last_error or f"Couldn't parse the response: {exc}"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -2164,29 +2209,33 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
                 st.caption("No stronger alternatives found in this category yet.")
             else:
                 for alt in alternatives:
-                    alt_img_col, alt_info_col, alt_btn_col = st.columns([1, 2.4, 1])
-                    with alt_img_col:
-                        if alt["image_url"]:
-                            st.image(alt["image_url"], width=60)
-                    with alt_info_col:
-                        st.markdown(f"**{html.escape(alt['name'])}**")
-                        if alt["brand"]:
-                            st.caption(alt["brand"])
-                        st.markdown(
-                            f'<span style="color:#3F6B24; font-weight:700;">'
-                            f'{alt["score"]}/100</span>',
-                            unsafe_allow_html=True,
-                        )
-                    with alt_btn_col:
-                        st.write("")
-                        if st.button("View", key=f"view_alt_{alt['barcode']}"):
-                            st.session_state.viewing_alternative_barcode = alt["barcode"]
-                            st.rerun()
-                    st.markdown(
-                        '<hr style="margin:0.3rem 0 0.7rem 0; border:none; '
-                        'border-top:1px solid #DCE4C9;">',
-                        unsafe_allow_html=True,
-                    )
+                    with st.container(border=True):
+                        alt_img_col, alt_info_col, alt_btn_col = st.columns([1, 2.4, 1])
+                        with alt_img_col:
+                            if alt["image_url"]:
+                                st.image(alt["image_url"], width=60)
+                            else:
+                                st.markdown(
+                                    '<div style="width:60px;height:60px;'
+                                    'display:flex;align-items:center;'
+                                    'justify-content:center;font-size:28px;'
+                                    'background:#F0EBDD;border-radius:8px;">🥫</div>',
+                                    unsafe_allow_html=True,
+                                )
+                        with alt_info_col:
+                            st.markdown(f"**{html.escape(alt['name'])}**")
+                            if alt["brand"]:
+                                st.caption(alt["brand"])
+                            st.markdown(
+                                f'<span style="color:#3F6B24; font-weight:700;">'
+                                f'{alt["score"]}/100</span>',
+                                unsafe_allow_html=True,
+                            )
+                        with alt_btn_col:
+                            st.write("")
+                            if st.button("View", key=f"view_alt_{alt['barcode']}"):
+                                st.session_state.viewing_alternative_barcode = alt["barcode"]
+                                st.rerun()
 
     return score
 
