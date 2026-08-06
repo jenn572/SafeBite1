@@ -1934,12 +1934,20 @@ def compute_health_score(ingredients_list, nutrition):
     matched_harmful = []
     matched_moderate = []
     matched_healthy = []
+    # Tracks which dictionary ingredients we've already counted, so a
+    # product whose raw ingredient text mentions the same thing more
+    # than once (e.g. "Sea Salt" and "Salt" both matching "Salt") only
+    # shows up — and only affects the score — a single time.
+    already_matched = set()
 
     for ingredient in ingredients_list:
         ing_lower = ingredient.lower()
         for dict_name, data in INGREDIENT_DICTIONARY.items():
             dict_lower = dict_name.lower()
             if dict_lower in ing_lower or ing_lower in dict_lower:
+                if dict_name in already_matched:
+                    break
+                already_matched.add(dict_name)
                 if data["type"] == "harmful":
                     matched_harmful.append(dict_name)
                 elif data["type"] == "moderate":
@@ -2118,13 +2126,24 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
         for name in matched_healthy:
             st.write(f"**{name}:** {HEALTHY_HIGHLIGHTS.get(name, INGREDIENT_DICTIONARY[name]['concern'])}")
 
-    if show_alternatives and score < 70:
+    if show_alternatives:
+        # Alternatives must beat the scanned product's own score. A
+        # perfect 100 can't be beaten, so in that case we still show
+        # other 100/100 products rather than showing nothing.
+        alt_min_score = 100 if score >= 100 else score + 1
+
         st.divider()
         st.markdown('<p class="section-title">🌟 Healthier Alternatives</p>', unsafe_allow_html=True)
-        st.caption(
-            "Other products in the same Open Food Facts category "
-            "scoring 70+ on our health score."
-        )
+        if score >= 100:
+            st.caption(
+                "Other products in the same Open Food Facts category "
+                "also scoring 100/100 on our health score."
+            )
+        else:
+            st.caption(
+                f"Other products in the same Open Food Facts category "
+                f"scoring higher than {score}/100 on our health score."
+            )
 
         if not result.get("category_tag"):
             st.caption(
@@ -2134,7 +2153,9 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
         else:
             with st.spinner("Looking for healthier alternatives..."):
                 alternatives, alt_error = fetch_healthier_alternatives(
-                    result["category_tag"], exclude_barcode=result["barcode"]
+                    result["category_tag"],
+                    exclude_barcode=result["barcode"],
+                    min_score=alt_min_score,
                 )
 
             if alt_error:
@@ -3696,7 +3717,9 @@ with tab_scan:
         st.write("")
 
         # ---- Harmful / watch-list check ----
-        flagged = [i for i in ingredients if i in WATCH_LIST]
+        # dict.fromkeys() dedupes while preserving first-seen order, in
+        # case an ingredient is listed more than once for a product.
+        flagged = list(dict.fromkeys(i for i in ingredients if i in WATCH_LIST))
 
         if flagged:
             st.warning("⚠️ Harmful ingredients found")
@@ -3706,7 +3729,7 @@ with tab_scan:
             st.success("✅ No harmful ingredients from our list were found.")
 
         # ---- Semi-harmful / moderate check ----
-        moderate_found = [i for i in ingredients if i in MODERATE_LIST]
+        moderate_found = list(dict.fromkeys(i for i in ingredients if i in MODERATE_LIST))
         if moderate_found:
             st.markdown(
                 '<div class="instruction-card" style="background-color:#FDF3E2;'
@@ -3719,7 +3742,7 @@ with tab_scan:
                 st.write(f"**{ingredient}:** {MODERATE_LIST[ingredient]}")
 
         # ---- Healthy highlights ----
-        healthy_found = [i for i in ingredients if i in HEALTHY_HIGHLIGHTS]
+        healthy_found = list(dict.fromkeys(i for i in ingredients if i in HEALTHY_HIGHLIGHTS))
         if healthy_found:
             st.info("🌿 Healthy ingredients spotted")
             for ingredient in healthy_found:
@@ -4180,10 +4203,10 @@ HEALTHY_CATCH_HTML = """
 
     .hc-duration-select {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         margin-bottom: 18px;
         width: 100%;
-        max-width: 260px;
+        max-width: 320px;
     }
     .hc-duration-btn {
         flex: 1;
@@ -4191,10 +4214,11 @@ HEALTHY_CATCH_HTML = """
         background-color: #FFFFFF;
         color: #526539;
         border-radius: 999px;
-        padding: 9px 10px;
-        font-size: 13px;
+        padding: 9px 6px;
+        font-size: 11.5px;
         font-weight: 800;
         cursor: pointer;
+        white-space: nowrap;
     }
     .hc-duration-btn.hc-duration-btn-active {
         background-color: #526539;
@@ -4271,8 +4295,9 @@ HEALTHY_CATCH_HTML = """
                 dodge the junk. Pick a round length to get started!
             </div>
             <div class="hc-duration-select" id="hcDurationSelect">
-                <button class="hc-duration-btn" data-seconds="10">⚡ 10 Seconds</button>
-                <button class="hc-duration-btn hc-duration-btn-active" data-seconds="60">⏱ 1 Minute</button>
+                <button class="hc-duration-btn" data-seconds="15">⚡ 15 Seconds</button>
+                <button class="hc-duration-btn" data-seconds="30">🕒 30 Seconds</button>
+                <button class="hc-duration-btn hc-duration-btn-active" data-seconds="60">⏱ 60 Seconds</button>
             </div>
             <button class="hc-btn hc-btn-primary" id="hcStartBtn">▶ Start New Game</button>
         </div>
