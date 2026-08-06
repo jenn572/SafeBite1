@@ -1745,9 +1745,13 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     to translate_to_english — used when scoring many alternative
     candidates at once, where only ones with existing English text
     are usable anyway."""
+    # Prefer the English name when Open Food Facts has one — this app
+    # is English-only, and for alternatives in particular we never want
+    # to show a name in whatever language the product happened to be
+    # submitted in.
     name = (
-        product.get("product_name")
-        or product.get("product_name_en")
+        product.get("product_name_en")
+        or product.get("product_name")
         or "Unknown product"
     )
 
@@ -1800,6 +1804,11 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     categories_tags = product.get("categories_tags") or []
     category_tag = categories_tags[-1] if categories_tags else None
 
+    # Whether this product actually has usable English text. Used when
+    # picking healthier-alternative candidates, so we never surface a
+    # product whose name is only available in French, German, etc.
+    has_english_name = bool(product.get("product_name_en")) or product.get("lang") == "en"
+
     return {
         "barcode": matched_barcode,
         "name": name,
@@ -1812,6 +1821,8 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
         "saturated_fat_100g": nutriments.get("saturated-fat_100g"),
         "fiber_100g": nutriments.get("fiber_100g"),
         "category_tag": category_tag,
+        "categories_tags": categories_tags,
+        "has_english_name": has_english_name,
     }
 
 
@@ -1936,8 +1947,26 @@ def fetch_healthier_alternatives(category_tag, exclude_barcode, min_score=70, ma
         if not code or code == exclude_barcode:
             continue
 
-        candidate = _build_scan_result(product, code, translate_ingredients=False)
+        # Open Food Facts' category search isn't always exact — the v1
+        # fallback in particular matches on a loose substring, and even
+        # the v2 endpoint occasionally returns near-misses. Only accept
+        # a candidate if it's actually tagged with the category we're
+        # searching, so a granola-bar scan can't surface bread.
+        candidate_categories = product.get("categories_tags") or []
+        if category_tag not in candidate_categories:
+            continue
+
+        # translate_ingredients=True so foreign-language ingredient
+        # lists get translated before scoring — otherwise they simply
+        # fail to match our (English) ingredient dictionary, nothing
+        # gets flagged, and the product wrongly scores a perfect 100.
+        candidate = _build_scan_result(product, code, translate_ingredients=True)
         if not candidate["ingredients_list"]:
+            continue
+
+        # Alternatives must have a genuine English name — we never want
+        # to recommend a product the user can't actually read.
+        if not candidate["has_english_name"]:
             continue
 
         name_key = (candidate["name"].strip().lower(), candidate["brand"].strip().lower())
