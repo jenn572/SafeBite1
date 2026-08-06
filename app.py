@@ -1403,6 +1403,144 @@ INGREDIENT_DICTIONARY = {
         "explanation": "A natural food coloring derived from achiote tree seeds.",
         "concern": "Some studies link it to hyperactivity in children and asthma.",
     },
+
+    # ---------------- COMMON FORTIFICATION & EVERYDAY ADDITIVES ----------------
+    # These show up constantly on real nutrition labels but weren't in
+    # the dictionary yet, so they were falling back to the plain,
+    # uncolored ingredient card instead of being classified.
+    "Dextrose": {
+        "type": "moderate",
+        "explanation": "A simple sugar (also called glucose) used to "
+                        "sweeten foods or help them brown.",
+        "concern": "Nutritionally similar to table sugar — adds to your "
+                    "total added sugar intake.",
+    },
+    "Gelatin": {
+        "type": "moderate",
+        "explanation": "A thickening and gelling protein made by boiling "
+                        "animal bones, skin, and connective tissue.",
+        "concern": "Not suitable for vegetarians or vegans; otherwise a "
+                    "common, low-concern ingredient.",
+    },
+    "Trisodium Phosphate": {
+        "type": "moderate",
+        "explanation": "A preservative and texture stabilizer used in "
+                        "cereals, baked goods, and processed cheese.",
+        "concern": "Adds to total sodium and phosphate intake; excess "
+                    "phosphate over time has been linked to kidney and "
+                    "heart strain in some research.",
+    },
+    "Natural And Artificial Flavor": {
+        "type": "moderate",
+        "explanation": "A blend of flavor compounds, some derived from "
+                        "real food sources and some made in a lab.",
+        "concern": "The exact mix isn't disclosed on the label, so it's "
+                    "hard to know exactly what's inside.",
+    },
+    "Natural Flavors": {
+        "type": "moderate",
+        "explanation": "Flavor compounds derived from real food sources, "
+                        "but processed and concentrated in a lab.",
+        "concern": "Legally allowed to contain dozens of undisclosed "
+                    "components, so the exact makeup isn't public.",
+    },
+    "Vitamin E": {
+        "type": "healthy",
+        "explanation": "An antioxidant vitamin, often added (as mixed "
+                        "tocopherols) to keep oils and fats from going "
+                        "rancid.",
+        "concern": "Supports immune health and helps protect cells from "
+                    "damage.",
+    },
+    "Calcium Carbonate": {
+        "type": "healthy",
+        "explanation": "A mineral form of calcium commonly added to "
+                        "fortify cereals and snacks.",
+        "concern": "Supports strong bones and teeth.",
+    },
+    "Zinc": {
+        "type": "healthy",
+        "explanation": "An essential mineral added to fortify cereals "
+                        "and other packaged foods.",
+        "concern": "Supports immune function and wound healing.",
+    },
+    "Iron": {
+        "type": "healthy",
+        "explanation": "An essential mineral added to fortify cereals "
+                        "and other packaged foods.",
+        "concern": "Needed to carry oxygen in the blood; helps prevent "
+                    "anemia.",
+    },
+    "Soy Lecithin": {
+        "type": "moderate",
+        "explanation": "An emulsifier derived from soybeans, used to "
+                        "keep ingredients like oil and water from "
+                        "separating.",
+        "concern": "Generally recognized as safe, though it's a soy "
+                    "derivative some allergy-sensitive people avoid.",
+    },
+    "Corn Starch": {
+        "type": "moderate",
+        "explanation": "A thickener made from corn, used in sauces, "
+                        "gravies, and processed snacks.",
+        "concern": "Highly refined and low in nutrients; digests quickly "
+                    "into sugar.",
+    },
+    "Baking Soda": {
+        "type": "moderate",
+        "explanation": "Sodium bicarbonate, used as a leavening agent "
+                        "to help baked goods rise.",
+        "concern": "Adds a small amount of sodium; a low-concern, "
+                    "everyday ingredient.",
+    },
+    "Xanthan Gum": {
+        "type": "moderate",
+        "explanation": "A fermentation-derived thickener used to give "
+                        "sauces and gluten-free baked goods body.",
+        "concern": "Generally well-tolerated, though large amounts can "
+                    "cause digestive discomfort in some people.",
+    },
+    "Guar Gum": {
+        "type": "moderate",
+        "explanation": "A thickener made from guar beans, used to add "
+                        "body to sauces, ice cream, and baked goods.",
+        "concern": "Generally well-tolerated, though large amounts can "
+                    "cause digestive discomfort in some people.",
+    },
+    "Potassium Sorbate": {
+        "type": "moderate",
+        "explanation": "A preservative used to stop mold and yeast from "
+                        "growing in packaged foods and drinks.",
+        "concern": "Considered low-risk, though it can trigger mild "
+                    "skin or allergy reactions in sensitive people.",
+    },
+    "Niacin": {
+        "type": "healthy",
+        "explanation": "Vitamin B3, commonly added to fortify cereals "
+                        "and enriched flour products.",
+        "concern": "Supports energy metabolism and nervous system "
+                    "health.",
+    },
+    "Riboflavin": {
+        "type": "healthy",
+        "explanation": "Vitamin B2, commonly added to fortify cereals "
+                        "and enriched flour products.",
+        "concern": "Helps the body convert food into usable energy.",
+    },
+    "Thiamine": {
+        "type": "healthy",
+        "explanation": "Vitamin B1, commonly added to fortify cereals "
+                        "and enriched flour products.",
+        "concern": "Supports nerve function and energy metabolism.",
+    },
+    "Folic Acid": {
+        "type": "healthy",
+        "explanation": "A synthetic form of folate (vitamin B9), "
+                        "commonly added to fortify cereals and enriched "
+                        "flour products.",
+        "concern": "Especially important for cell growth; a key "
+                    "nutrient during pregnancy.",
+    },
 }
 
 # Kept separate for the ingredient-check logic on the Scan page.
@@ -1789,6 +1927,51 @@ def _humanize_category_tag(tag):
     return label.title() if label else None
 
 
+# FD&C color additives are sometimes declared on labels as shorthand,
+# e.g. "Yellow 5, 6" meaning "Yellow 5, Yellow 6". Splitting that text
+# on commas (as ingredient lists always are) leaves a bare "6" with no
+# indication it's actually "Yellow 6". _expand_color_additive_shorthand
+# below reattaches the color name so the ingredient shows its real,
+# full name instead of just a number.
+_FDC_COLOR_PREFIXES = ("Yellow", "Red", "Blue", "Green", "Orange", "Citrus Red")
+
+
+def _expand_color_additive_shorthand(ingredients_list):
+    """Fix the "Yellow 5, 6" -> "Yellow 5", "6" splitting problem by
+    renaming a bare trailing number (optionally with "Lake") back to
+    its full color name, using whichever known color prefix appeared
+    most recently in the list."""
+    expanded = []
+    last_color_prefix = None
+    for item in ingredients_list:
+        stripped = item.strip()
+        if not stripped:
+            continue
+
+        matched_prefix = next(
+            (
+                prefix for prefix in _FDC_COLOR_PREFIXES
+                if stripped.lower().startswith(prefix.lower() + " ")
+            ),
+            None,
+        )
+        if matched_prefix:
+            last_color_prefix = matched_prefix
+            expanded.append(stripped)
+            continue
+
+        bare_number_match = re.match(r"^(\d+)(\s+Lake)?$", stripped, re.IGNORECASE)
+        if bare_number_match and last_color_prefix:
+            number = bare_number_match.group(1)
+            suffix = bare_number_match.group(2) or ""
+            expanded.append(f"{last_color_prefix} {number}{suffix}".strip())
+            continue
+
+        last_color_prefix = None
+        expanded.append(stripped)
+    return expanded
+
+
 def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     """Turn a raw Open Food Facts product dict into the result shape
     the rest of the app works with (name, ingredients, nutrition,
@@ -1877,6 +2060,7 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
         for part in ingredients_text_final.split(",")
         if part.strip()
     ]
+    ingredients_list = _expand_color_additive_shorthand(ingredients_list)
 
     nutriments = product.get("nutriments", {})
 
