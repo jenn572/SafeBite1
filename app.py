@@ -1807,7 +1807,12 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     # Whether this product actually has usable English text. Used when
     # picking healthier-alternative candidates, so we never surface a
     # product whose name is only available in French, German, etc.
-    has_english_name = bool(product.get("product_name_en")) or product.get("lang") == "en"
+    # languages_tags is Open Food Facts' dedicated field for this and
+    # is far more reliable than product_name_en/lang — contributors
+    # frequently paste the native-language name into product_name_en
+    # by mistake, which made that check pass for non-English products.
+    languages_tags = product.get("languages_tags") or []
+    has_english_name = "en:english" in languages_tags
 
     return {
         "barcode": matched_barcode,
@@ -1823,6 +1828,7 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
         "category_tag": category_tag,
         "categories_tags": categories_tags,
         "has_english_name": has_english_name,
+        "languages_tags": languages_tags,
     }
 
 
@@ -1870,12 +1876,20 @@ def _search_openfoodfacts_category(category_tag, page_size=24):
                 headers=OPENFOODFACTS_HEADERS,
                 params={
                     "categories_tags": category_tag,
+                    # Ask Open Food Facts to only return products whose
+                    # data is actually tagged as English. This is the
+                    # dedicated language field on OFF and far more
+                    # trustworthy than product_name_en, which is often
+                    # just a copy of the native-language name that a
+                    # contributor pasted into the wrong field.
+                    "languages_tags": "en:english",
                     "sort_by": "unique_scans_n",
                     "page_size": page_size,
                     "fields": (
                         "code,product_name,product_name_en,brands,"
                         "image_front_small_url,image_url,ingredients_text,"
-                        "ingredients_text_en,lang,nutriments,categories_tags"
+                        "ingredients_text_en,lang,languages_tags,nutriments,"
+                        "categories_tags"
                     ),
                 },
                 timeout=15,
@@ -1907,6 +1921,10 @@ def _search_openfoodfacts_category(category_tag, page_size=24):
                 "tagtype_0": "categories",
                 "tag_contains_0": "contains",
                 "tag_0": category_tag.split(":", 1)[-1],
+                # Same English-only restriction as the v2 request above.
+                "tagtype_1": "languages",
+                "tag_contains_1": "contains",
+                "tag_1": "english",
                 "sort_by": "unique_scans_n",
                 "page_size": page_size,
             },
