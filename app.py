@@ -1734,6 +1734,61 @@ def _barcode_variants(barcode):
     return unique_variants
 
 
+# Characters that essentially never show up in genuine English product
+# names, but are common in French/German/Spanish/Italian/Portuguese
+# ones. Used below to sanity-check text before trusting it as English.
+_NON_ENGLISH_CHARS_RE = re.compile(
+    r"[àâäåæçèéêëìíîïñòóôöøùúûüýÿœ]", re.IGNORECASE
+)
+
+# A handful of very common non-English function words that almost never
+# appear in an English product name. Not a real language detector —
+# just a cheap extra signal, used alongside the character check above.
+_NON_ENGLISH_STOPWORDS = {
+    "de", "du", "des", "le", "la", "les", "un", "une", "et", "au", "aux",
+    "avec", "sans", "pour", "farine", "graines", "complet", "complets",
+    "tranches", "avoine", "flocons", "und", "mit", "der", "die", "das",
+    "von", "el", "los", "las", "con", "sin", "para", "senza", "farina", "di",
+}
+
+
+def _looks_english(text):
+    """Lightweight heuristic for whether a product name is genuinely
+    written in English.
+
+    Open Food Facts' product_name_en field is often unreliable — many
+    contributors paste the product's native-language name into that
+    field by mistake rather than leaving it blank or filling in a real
+    translation. Blindly trusting product_name_en (or a lang == "en"
+    tag) is what previously let French/German/etc. names slip into the
+    "Healthier Alternatives" list. This isn't a full language
+    detector, just enough to catch the common failure cases: accented
+    Latin characters that don't appear in English, and a short list of
+    very common non-English function words."""
+    if not text:
+        return False
+    if _NON_ENGLISH_CHARS_RE.search(text):
+        return False
+    # Split on anything that isn't a letter (including apostrophes), so
+    # e.g. "d'avoine" is checked as "d" + "avoine" rather than as one
+    # token that would never match a stopword.
+    tokens = re.findall(r"[a-z]+", text.lower())
+    if any(token in _NON_ENGLISH_STOPWORDS for token in tokens):
+        return False
+    return True
+
+
+def _humanize_category_tag(tag):
+    """Turn an Open Food Facts category tag like "en:granola-bars" into
+    a readable label like "Granola Bars", for display in the
+    Healthier Alternatives caption. Returns None if there's nothing
+    usable."""
+    if not tag:
+        return None
+    label = tag.split(":", 1)[-1].replace("-", " ").strip()
+    return label.title() if label else None
+
+
 def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     """Turn a raw Open Food Facts product dict into the result shape
     the rest of the app works with (name, ingredients, nutrition,
@@ -1748,12 +1803,39 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     # Prefer the English name when Open Food Facts has one — this app
     # is English-only, and for alternatives in particular we never want
     # to show a name in whatever language the product happened to be
-    # submitted in.
-    name = (
-        product.get("product_name_en")
-        or product.get("product_name")
-        or "Unknown product"
-    )
+    # submitted in. product_name_en can't be trusted blindly though: on
+    # Open Food Facts it's often just a copy of the native-language
+    # name pasted into the wrong field by a contributor, so we verify
+    # it actually reads as English before using it. If it doesn't (or
+    # doesn't exist), we translate the native product_name ourselves —
+    # the same way ingredients are translated below — instead of just
+    # displaying whatever language it happens to be in.
+    native_name = product.get("product_name") or ""
+    name_source_lang = product.get("lang")
+    candidate_en_name = product.get("product_name_en") or ""
+
+    if candidate_en_name and _looks_english(candidate_en_name):
+        name = candidate_en_name
+    elif native_name and (not name_source_lang or name_source_lang == "en") and _looks_english(native_name):
+        name = native_name
+    elif native_name and name_source_lang and name_source_lang != "en":
+        translated_name, was_translated = translate_to_english(
+            native_name, name_source_lang
+        )
+        if was_translated and _looks_english(translated_name):
+            name = translated_name
+        elif candidate_en_name:
+            # Translation didn't pan out — fall back to product_name_en
+            # even if our heuristic flagged it, rather than showing
+            # nothing at all.
+            name = candidate_en_name
+        else:
+            name = native_name or "Unknown product"
+    else:
+        # No reliable source language to translate from — use whatever
+        # we've got. This candidate will still get filtered out below
+        # if the result doesn't actually look English.
+        name = candidate_en_name or native_name or "Unknown product"
 
     # Open Food Facts often only has an ingredients list in whatever
     # language the product was originally submitted in. Prefer an
@@ -1804,18 +1886,15 @@ def _build_scan_result(product, matched_barcode, translate_ingredients=True):
     categories_tags = product.get("categories_tags") or []
     category_tag = categories_tags[-1] if categories_tags else None
 
-    # Whether this product actually has usable English text, and what
-    # that English name actually is. Used when picking healthier-
-    # alternative candidates, so we never surface a product whose name
-    # only displays in French, German, etc. Some Open Food Facts
-    # entries never got a product_name_en filled in even though the
-    # product genuinely IS in English (the contributor just left that
-    # redundant field blank), so we also accept product_name itself
-    # when the product's primary submitted language is English.
-    english_name = product.get("product_name_en") or (
-        product.get("product_name") if product.get("lang") == "en" else None
-    )
-    has_english_name = bool(english_name)
+    # Whether the `name` resolved above is actually usable English text.
+    # Used when picking healthier-alternative candidates, so we never
+    # surface a product whose name only displays in French, German,
+    # etc. — this checks the real, final text (after any translation
+    # attempt above), not just whether an English-labelled field
+    # happened to be non-empty, since that field is often unreliable
+    # on Open Food Facts.
+    has_english_name = name != "Unknown product" and _looks_english(name)
+    english_name = name if has_english_name else None
 
     return {
         "barcode": matched_barcode,
@@ -1953,7 +2032,12 @@ def fetch_healthier_alternatives(categories_tags, exclude_barcode, min_score=70,
     health-score logic, and return up to max_results products scoring
     at or above min_score, best first — the same data (ingredients,
     nutrition) shown for the original scanned product is available for
-    each one. Returns (alternatives_list, error_message).
+    each one. Returns (alternatives_list, error_message, matched_category_tag).
+
+    matched_category_tag is whichever tag actually produced results
+    (so the UI can tell the user exactly what category the
+    alternatives came from, e.g. "Granola Bars" rather than a vague
+    "same category"). It's None if nothing was found.
 
     categories_tags is the scanned product's own categories_tags list
     (general -> specific, as Open Food Facts returns it). We start
@@ -1964,7 +2048,7 @@ def fetch_healthier_alternatives(categories_tags, exclude_barcode, min_score=70,
     after 3 levels so results stay meaningfully related to what was
     scanned rather than drifting into an unrelated aisle."""
     if not categories_tags:
-        return [], None
+        return [], None, None
 
     tags_to_try = list(reversed(categories_tags))[:3]
     last_error = None
@@ -2032,9 +2116,9 @@ def fetch_healthier_alternatives(categories_tags, exclude_barcode, min_score=70,
 
         scored.sort(key=lambda c: c["score"], reverse=True)
         if scored:
-            return scored[:max_results], None
+            return scored[:max_results], None, tag
 
-    return [], last_error
+    return [], last_error, None
 
 
 def compute_health_score(ingredients_list, nutrition):
@@ -2254,16 +2338,6 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
 
         st.divider()
         st.markdown('<p class="section-title">🌟 Healthier Alternatives</p>', unsafe_allow_html=True)
-        if score >= 100:
-            st.caption(
-                "Other products in the same Open Food Facts category "
-                "also scoring 100/100 on our health score."
-            )
-        else:
-            st.caption(
-                f"Other products in the same Open Food Facts category "
-                f"scoring higher than {score}/100 on our health score."
-            )
 
         if not result.get("category_tag"):
             st.caption(
@@ -2272,16 +2346,32 @@ def render_product_scan_result(result, current_user, show_alternatives=True):
             )
         else:
             with st.spinner("Looking for healthier alternatives..."):
-                alternatives, alt_error = fetch_healthier_alternatives(
+                alternatives, alt_error, matched_tag = fetch_healthier_alternatives(
                     result["categories_tags"],
                     exclude_barcode=result["barcode"],
                     min_score=alt_min_score,
                 )
 
+            # Prefer the category the results actually came from (which
+            # may be a broader tag than the product's own most-specific
+            # one) so the caption always reflects what's really shown.
+            category_label = _humanize_category_tag(
+                matched_tag or result.get("category_tag")
+            )
+            category_phrase = f"{category_label} products" if category_label else "products in this category"
+
+            if score >= 100:
+                st.caption(f"Other {category_phrase} also scoring 100/100 on our health score.")
+            else:
+                st.caption(f"Other {category_phrase} scoring higher than {score}/100 on our health score.")
+
             if alt_error:
                 st.caption("Couldn't load alternatives right now — try again later.")
             elif not alternatives:
-                st.caption("No stronger alternatives found in this category yet.")
+                st.caption(
+                    f"We couldn't find any {category_phrase} that score higher "
+                    "than this one right now."
+                )
             else:
                 for alt in alternatives:
                     with st.container(border=True):
@@ -5118,4 +5208,3 @@ with st.sidebar:
         st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
-
