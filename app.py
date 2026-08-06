@@ -1855,7 +1855,7 @@ def lookup_openfoodfacts(barcode):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _search_openfoodfacts_category(category_tag, page_size=24):
+def _search_openfoodfacts_category(category_tag, page_size=60):
     """Raw search against Open Food Facts for popular products in a
     given category. Returns (products_list, error_message).
 
@@ -1967,11 +1967,15 @@ def fetch_healthier_alternatives(category_tag, exclude_barcode, min_score=70, ma
 
         # Open Food Facts' category search isn't always exact — the v1
         # fallback in particular matches on a loose substring, and even
-        # the v2 endpoint occasionally returns near-misses. Only accept
-        # a candidate if it's actually tagged with the category we're
-        # searching, so a granola-bar scan can't surface bread.
+        # the v2 endpoint occasionally returns near-misses. A candidate
+        # only counts if the category we searched is that candidate's
+        # OWN most-specific category too (not merely a shared broad
+        # ancestor tag) — otherwise a bread product that happens to
+        # share a generic parent category like "breakfasts" with a
+        # granola bar can slip through even though its own specific
+        # category is "en:breads", not the one we searched.
         candidate_categories = product.get("categories_tags") or []
-        if category_tag not in candidate_categories:
+        if not candidate_categories or candidate_categories[-1] != category_tag:
             continue
 
         # translate_ingredients=True so foreign-language ingredient
@@ -1983,8 +1987,13 @@ def fetch_healthier_alternatives(category_tag, exclude_barcode, min_score=70, ma
             continue
 
         # Alternatives must have a genuine English name — we never want
-        # to recommend a product the user can't actually read.
-        if not candidate["has_english_name"]:
+        # to recommend a product the user can't actually read. Some OFF
+        # products are tagged "en:english" in languages_tags because
+        # *some* field on the page is in English (e.g. nutrition table)
+        # even though the product name itself is still native-language,
+        # so we also require an actual product_name_en value, not just
+        # the language tag alone.
+        if not candidate["has_english_name"] or not product.get("product_name_en"):
             continue
 
         name_key = (candidate["name"].strip().lower(), candidate["brand"].strip().lower())
@@ -5090,3 +5099,4 @@ with st.sidebar:
         st.session_state.viewing_alternative_barcode = None
         st.session_state.pop("last_uploaded_pic_fingerprint", None)
         st.rerun()
+
